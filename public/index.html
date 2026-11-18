@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="color-scheme" content="dark" />
+  <title>CoreZoneDisplay</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Main Dashboard UI Layer -->
+  <main id="main-ui" class="main-ui" aria-label="CoreZoneDisplay Main Interface">
+    <!-- Top Status Header -->
+    <header class="top-bar">
+      <div class="brand">
+        <span class="brand-dot" id="connection-indicator" aria-hidden="true"></span>
+        <h1 class="brand-title">CoreZoneDisplay</h1>
+      </div>
+
+      <div class="status-group">
+        <span id="connection-status" class="status-pill status-disconnected">Connecting to Volumio...</span>
+        <span id="header-clock" class="header-clock">--:--</span>
+      </div>
+    </header>
+
+    <!-- Current Playback Summary Bar -->
+    <section class="now-playing-card" aria-label="Playback Status">
+      <div class="now-playing-meta">
+        <div class="playback-badge-row">
+          <span id="playback-state-badge" class="playback-badge">IDLE</span>
+          <span id="playback-service" class="playback-service">Volumio</span>
+        </div>
+        <h2 id="main-track-title" class="track-title">Ready to Play</h2>
+        <p id="main-track-artist" class="track-artist">Select a source below or stream via Spotify Connect</p>
+      </div>
+    </section>
+
+    <!-- Automotive / CarPlay-inspired Source Grid (Placeholder MVP) -->
+    <section class="sources-section" aria-label="Audio Sources">
+      <div class="source-grid">
+        <button type="button" class="source-tile" data-source="spotify">
+          <span class="source-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <path d="M8 14.5c2.5-1 5.5-1 8 0"></path>
+              <path d="M7 11.5c3.5-1.2 6.5-1.2 10 0"></path>
+              <path d="M6.5 8.5c4-1.4 7.5-1.4 11 0"></path>
+            </svg>
+          </span>
+          <span class="source-label">Spotify</span>
+          <span class="source-sublabel">Connect &amp; Playlists</span>
+        </button>
+
+        <button type="button" class="source-tile" data-source="radio">
+          <span class="source-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="7" width="20" height="14" rx="2"></rect>
+              <path d="M6 7l10-4"></path>
+              <circle cx="16.5" cy="14" r="2.5"></circle>
+              <path d="M6 12h4"></path>
+              <path d="M6 16h4"></path>
+            </svg>
+          </span>
+          <span class="source-label">Radio</span>
+          <span class="source-sublabel">Live Web Stations</span>
+        </button>
+
+        <button type="button" class="source-tile" data-source="cd">
+          <span class="source-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M14.5 9.5L19 5"></path>
+            </svg>
+          </span>
+          <span class="source-label">CD</span>
+          <span class="source-sublabel">Optical Disc Player</span>
+        </button>
+
+        <button type="button" class="source-tile" data-source="podcasts">
+          <span class="source-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+              <line x1="12" y1="19" x2="12" y2="23"></line>
+              <line x1="8" y1="23" x2="16" y2="23"></line>
+            </svg>
+          </span>
+          <span class="source-label">Podcasts</span>
+          <span class="source-sublabel">Shows &amp; Episodes</span>
+        </button>
+      </div>
+    </section>
+  </main>
+
+  <!-- Full-Viewport Idle / Screensaver Overlay -->
+  <div id="screensaver" class="screensaver hidden" aria-hidden="true">
+    <div class="screensaver-content">
+      <time id="screensaver-clock" class="screensaver-clock">00:00</time>
+      <div id="screensaver-now-playing" class="screensaver-now-playing hidden">
+        <span class="screensaver-playing-dot" aria-hidden="true"></span>
+        <span id="screensaver-track-info" class="screensaver-track-info"></span>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

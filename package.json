@@ -1,0 +1,31 @@
+{
+  "name": "core_zone_display",
+  "version": "1.0.0",
+  "description": "Minimal and focused Volumio display",
+  "main": "index.js",
+  "scripts": {
+    "start": "node -e \"const Plugin = require('./index.js'); const p = new Plugin({ coreCommand: {}, logger: console, configManager: {} }); p.onStart();\""
+  },
+  "author": "CoreZoneDisplay",
+  "license": "MIT",
+  "volumio_info": {
+    "prettyName": "CoreZoneDisplay",
+    "icon": "fa-desktop",
+    "plugin_type": "user_interface",
+    "architectures": [
+      "arm",
+      "armhf",
+      "armv7",
+      "armv8",
+      "x86",
+      "x64"
+    ],
+    "os": [
+      "linux"
+    ]
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "kew": "^0.7.0"
+  }
+}

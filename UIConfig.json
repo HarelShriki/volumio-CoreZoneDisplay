@@ -1,0 +1,168 @@
+{
+  "page": {
+    "label": "TRANSLATE.PAGE_TITLE"
+  },
+  "sections": [
+    {
+      "id": "section_display_screensaver",
+      "element": "section",
+      "label": "TRANSLATE.SECTION_DISPLAY_TITLE",
+      "icon": "fa-desktop",
+      "onSave": {
+        "type": "controller",
+        "endpoint": "user_interface/core_zone_display",
+        "method": "saveDisplaySettings"
+      },
+      "saveButton": {
+        "label": "TRANSLATE.SAVE",
+        "data": [
+          "screensaverEnabled",
+          "idleTimeoutSec",
+          "selectedClock"
+        ]
+      },
+      "content": [
+        {
+          "id": "screensaverEnabled",
+          "element": "switch",
+          "doc": "TRANSLATE.ENABLE_SCREENSAVER_DOC",
+          "label": "TRANSLATE.ENABLE_SCREENSAVER",
+          "value": true
+        },
+        {
+          "id": "idleTimeoutSec",
+          "element": "input",
+          "type": "number",
+          "doc": "TRANSLATE.IDLE_TIMEOUT_DOC",
+          "label": "TRANSLATE.IDLE_TIMEOUT_SEC",
+          "value": 60
+        },
+        {
+          "id": "selectedClock",
+          "element": "select",
+          "doc": "TRANSLATE.ACTIVE_CLOCK_DOC",
+          "label": "TRANSLATE.ACTIVE_CLOCK",
+          "value": {
+            "value": "MainClockSelector.html",
+            "label": "MainClockSelector.html"
+          },
+          "options": [
+            {
+              "value": "MainClockSelector.html",
+              "label": "MainClockSelector.html"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "section_radio_presets",
+      "element": "section",
+      "label": "TRANSLATE.SECTION_RADIO_TITLE",
+      "icon": "fa-microphone",
+      "description": "TRANSLATE.SECTION_RADIO_DESC",
+      "onSave": {
+        "type": "controller",
+        "endpoint": "user_interface/core_zone_display",
+        "method": "saveRadioSettings"
+      },
+      "saveButton": {
+        "label": "TRANSLATE.SAVE",
+        "data": [
+          "radio1Name",
+          "radio1Url",
+          "radio2Name",
+          "radio2Url",
+          "radio3Name",
+          "radio3Url",
+          "radio4Name",
+          "radio4Url",
+          "radio5Name",
+          "radio5Url"
+        ]
+      },
+      "content": [
+        {
+          "id": "radio1Name",
+          "element": "input",
+          "type": "text",
+          "label": "TRANSLATE.RADIO_1_NAME",
+          "doc": "TRANSLATE.RADIO_NAME_DOC",
+          "value": "Kan 88"
+        },
+        {
+          "id": "radio1Url",
+          "element": "input",
+          "type": "text",
+          "label": "TRANSLATE.RADIO_1_URL",
+          "doc": "TRANSLATE.RADIO_URL_DOC",
+          "value": "https://27783.live.streamtheworld.com/KAN_88.mp3"
+        },
+        {
+          "id": "radio2Name",
+          "element": "input",
+          "type": "text",
+          "label": "TRANSLATE.RADIO_2_NAME",
+          "doc": "TRANSLATE.RADIO_NAME_DOC",
+          "value": "Galgalatz"
+        },
+        {
+          "id": "radio2Url",
+          "element": "input",
+          "type": "text",
+          "label": "TRANSLATE.RADIO_2_URL",
+          "doc": "TRANSLATE.RADIO_URL_DOC",
+          "value": "https://glzwizzlv.bynetcdn.com/glglz_mp3"
+        },
+        {
+          "id": "radio3Name",
+          "element": "input",
+          "type": "text",
+          "label": "TRANSLATE.RADIO_3_NAME",
+          "doc": "TRANSLATE.RADIO_NAME_DOC",
+          "value": "Eco 99 FM"
+        },
+        {
+          "id": "radio3Url",
+          "element": "input",
+          "type": "text",
+          "label": "TRANSLATE.RADIO_3_URL",
+          "doc": "TRANSLATE.RADIO_URL_DOC",
+          "value": "https://eco01.mediacast.co.il/ecolive/99fm_aac/icecast.audio"
+        },
+        {
+          "id": "radio4Name",
+          "element": "input",
+          "type": "text",
+          "label": "TRANSLATE.RADIO_4_NAME",
+          "doc": "TRANSLATE.RADIO_NAME_DOC",
+          "value": "Radio Paradise"
+        },
+        {
+          "id": "radio4Url",
+          "element": "input",
+          "type": "text",
+          "label": "TRANSLATE.RADIO_4_URL",
+          "doc": "TRANSLATE.RADIO_URL_DOC",
+          "value": "http://stream.radioparadise.com/aac-320"
+        },
+        {
+          "id": "radio5Name",
+          "element": "input",
+          "type": "text",
+          "label": "TRANSLATE.RADIO_5_NAME",
+          "doc": "TRANSLATE.RADIO_NAME_DOC",
+          "value": "SomaFM Groove Salad"
+        },
+        {
+          "id": "radio5Url",
+          "element": "input",
+          "type": "text",
+          "label": "TRANSLATE.RADIO_5_URL",
+          "doc": "TRANSLATE.RADIO_URL_DOC",
+          "value": "https://ice1.somafm.com/groovesalad-256-mp3"
+        }
+      ]
+    }
+  ]
+}

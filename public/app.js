@@ -1,92 +1,1148 @@
 /**
- * CoreZoneDisplay Frontend Application (Vanilla JS)
- * Connects to Volumio Socket.IO backend (port 3000) and manages the
- * main dashboard UI + idle screensaver watchdog timer.
+ * CoreZoneDisplay — Complete Frontend Application (Vanilla JS)
+ * - Fixed Top Bar & Bottom Player Bar + Touch-Scrollable View Container
+ * - Connects to Volumio Socket.IO backend (port 3000)
+ * - Synchronizes settings via GET /api/config & POST /api/config
+ * - Integrates submodule/clocks/MainClockSelector.html inside #screensaver with fallback clock check
+ * - Provides 1-tap Radio playback, Quick-Add/Edit modal, and Volumio My Web Radios import
+ * - Provides Podcasts RSS feed manager (GET /api/podcasts/episodes) + Volumio browseLibrary
  */
 
 (function () {
   'use strict';
 
   // ==========================================================================
-  // Configuration Constants
+  // Constants & Defaults
   // ==========================================================================
 
-  /**
-   * Watchdog Idle Timeout in milliseconds.
-   * Currently set to 10000 ms (10 seconds) for initial testing.
-   * TODO: Change to 300000 (5 minutes) for production kiosk use.
-   */
-  const IDLE_TIMEOUT_MS = 10000; // Change to 300000 for 5 minutes
+  const DEFAULT_CLOCK_FILE = 'MainClockSelector.html';
+  const DEFAULT_IDLE_TIMEOUT_SEC = 60;
+  const DEFAULT_SCREENSAVER_ENABLED = true;
 
-  /**
-   * Volumio Backend WebSocket Host & Port
-   * Uses window.location.hostname so it works both locally on the Pi kiosk
-   * and when previewed remotely from a PC browser.
-   */
+  const DEFAULT_RADIO_STATIONS = [
+    { id: 1, name: 'Kan 88', url: 'https://27783.live.streamtheworld.com/KAN_88.mp3', uri: 'https://27783.live.streamtheworld.com/KAN_88.mp3' },
+    { id: 2, name: 'Galgalatz', url: 'https://glzwizzlv.bynetcdn.com/glglz_mp3', uri: 'https://glzwizzlv.bynetcdn.com/glglz_mp3' },
+    { id: 3, name: 'Eco 99 FM', url: 'https://eco01.mediacast.co.il/ecolive/99fm_aac/icecast.audio', uri: 'https://eco01.mediacast.co.il/ecolive/99fm_aac/icecast.audio' },
+    { id: 4, name: 'Radio Paradise', url: 'http://stream.radioparadise.com/aac-320', uri: 'http://stream.radioparadise.com/aac-320' },
+    { id: 5, name: 'SomaFM Groove Salad', url: 'https://ice1.somafm.com/groovesalad-256-mp3', uri: 'https://ice1.somafm.com/groovesalad-256-mp3' }
+  ];
+
+  const VIEW_TITLES = {
+    home: 'CoreZoneDisplay',
+    radio: 'Radio Stations',
+    spotify: 'Spotify Connect',
+    cd: 'CD Player',
+    podcasts: 'Podcasts',
+    settings: 'Display & Radio Settings',
+    nowplaying: 'Now Playing'
+  };
+
   const VOLUMIO_HOST = window.location.hostname || 'localhost';
   const VOLUMIO_BACKEND_URL = 'http://' + VOLUMIO_HOST + ':3000';
   const SOCKET_IO_SCRIPT_URL = VOLUMIO_BACKEND_URL + '/socket.io/socket.io.js';
 
   // ==========================================================================
-  // DOM Elements
+  // DOM References
   // ==========================================================================
 
+  const homeBtn = document.getElementById('home-btn');
+  const viewTitleEl = document.getElementById('view-title');
+  const headerClockEl = document.getElementById('header-clock');
   const connectionIndicator = document.getElementById('connection-indicator');
   const connectionStatus = document.getElementById('connection-status');
-  const headerClock = document.getElementById('header-clock');
+  const settingsBtn = document.getElementById('settings-btn');
+  const showClockBtn = document.getElementById('show-clock-btn');
+  const viewContainer = document.getElementById('view-container');
 
-  const playbackStateBadge = document.getElementById('playback-state-badge');
-  const playbackService = document.getElementById('playback-service');
-  const mainTrackTitle = document.getElementById('main-track-title');
-  const mainTrackArtist = document.getElementById('main-track-artist');
-
-  const screensaverEl = document.getElementById('screensaver');
-  const screensaverClockEl = document.getElementById('screensaver-clock');
-  const screensaverNowPlayingEl = document.getElementById('screensaver-now-playing');
-  const screensaverTrackInfoEl = document.getElementById('screensaver-track-info');
+  const views = {
+    home: document.getElementById('view-home'),
+    radio: document.getElementById('view-radio'),
+    spotify: document.getElementById('view-spotify'),
+    cd: document.getElementById('view-cd'),
+    podcasts: document.getElementById('view-podcasts'),
+    settings: document.getElementById('view-settings'),
+    nowplaying: document.getElementById('view-nowplaying')
+  };
 
   const sourceTiles = document.querySelectorAll('.source-tile');
+  const tileBadgeRadio = document.getElementById('tile-badge-radio');
+
+  // Radio View Elements
+  const radioPresetsGrid = document.getElementById('radio-presets-grid');
+  const radioAddBtn = document.getElementById('radio-add-btn');
+  const radioLoadVolumioBtn = document.getElementById('radio-load-volumio-btn');
+  const radioHelpToggle = document.getElementById('radio-help-toggle');
+  const radioHelpBox = document.getElementById('radio-help-box');
+  const radioHelpClose = document.getElementById('radio-help-close');
+  const volumioRadiosSection = document.getElementById('volumio-radios-section');
+  const volumioRadiosList = document.getElementById('volumio-radios-list');
+
+  // Radio Quick-Add / Edit Modal
+  const radioModal = document.getElementById('radio-modal');
+  const radioModalCloseBtn = document.getElementById('radio-modal-close-btn');
+  const radioModalSlot = document.getElementById('radio-modal-slot');
+  const radioModalName = document.getElementById('radio-modal-name');
+  const radioModalUrl = document.getElementById('radio-modal-url');
+  const radioModalTestBtn = document.getElementById('radio-modal-test-btn');
+  const radioModalSaveBtn = document.getElementById('radio-modal-save-btn');
+
+  // Spotify View Elements
+  const spotifyHeading = document.getElementById('spotify-view-heading');
+  const spotifySubtext = document.getElementById('spotify-view-subtext');
+  const spotifyOpenNpBtn = document.getElementById('spotify-open-np-btn');
+
+  // CD View Elements
+  const cdStatusLabel = document.getElementById('cd-status-label');
+  const cdPlayAllBtn = document.getElementById('cd-play-all-btn');
+  const cdRefreshBtn = document.getElementById('cd-refresh-btn');
+  const cdEjectBtn = document.getElementById('cd-eject-btn');
+  const cdTrackList = document.getElementById('cd-track-list');
+
+  // Podcasts View Elements
+  const podcastBackBtn = document.getElementById('podcast-back-btn');
+  const podcastStatusLabel = document.getElementById('podcast-status-label');
+  const podcastAddBtn = document.getElementById('podcast-add-btn');
+  const podcastRefreshBtn = document.getElementById('podcast-refresh-btn');
+  const podcastHelpToggle = document.getElementById('podcast-help-toggle');
+  const podcastHelpBox = document.getElementById('podcast-help-box');
+  const podcastHelpClose = document.getElementById('podcast-help-close');
+  const podcastList = document.getElementById('podcast-list');
+
+  // Podcast Modal
+  const podcastModal = document.getElementById('podcast-modal');
+  const podcastModalCloseBtn = document.getElementById('podcast-modal-close-btn');
+  const podcastModalName = document.getElementById('podcast-modal-name');
+  const podcastModalUrl = document.getElementById('podcast-modal-url');
+  const podcastModalSaveBtn = document.getElementById('podcast-modal-save-btn');
+  const samplePillBtns = document.querySelectorAll('.sample-pill-btn');
+
+  // In-App Settings View Elements
+  const settingScreensaverEnabled = document.getElementById('setting-screensaver-enabled');
+  const settingIdleTimeout = document.getElementById('setting-idle-timeout');
+  const timeoutDecBtn = document.getElementById('timeout-dec-btn');
+  const timeoutIncBtn = document.getElementById('timeout-inc-btn');
+  const settingSelectedClock = document.getElementById('setting-selected-clock');
+  const settingTestScreensaverBtn = document.getElementById('setting-test-screensaver-btn');
+  const settingRadioList = document.getElementById('setting-radio-list');
+  const saveSettingsBtn = document.getElementById('save-settings-btn');
+
+  // Fullscreen Now Playing Elements
+  const npAlbumArt = document.getElementById('np-album-art');
+  const npArtFallback = document.getElementById('np-art-fallback');
+  const npSourceBadge = document.getElementById('np-source-badge');
+  const npStatusBadge = document.getElementById('np-status-badge');
+  const npTitle = document.getElementById('np-title');
+  const npArtist = document.getElementById('np-artist');
+  const npAlbum = document.getElementById('np-album');
+  const npProgressContainer = document.getElementById('np-progress-container');
+  const npSeekSlider = document.getElementById('np-seek-slider');
+  const npTimeCurrent = document.getElementById('np-time-current');
+  const npTimeTotal = document.getElementById('np-time-total');
+  const npPrevBtn = document.getElementById('np-prev-btn');
+  const npPlayBtn = document.getElementById('np-play-btn');
+  const npIconPlay = document.getElementById('np-icon-play');
+  const npIconPause = document.getElementById('np-icon-pause');
+  const npNextBtn = document.getElementById('np-next-btn');
+  const npStopBtn = document.getElementById('np-stop-btn');
+
+  // Persistent Bottom Bar Elements
+  const bottomTrackTrigger = document.getElementById('bottom-track-trigger');
+  const bottomAlbumArt = document.getElementById('bottom-album-art');
+  const bottomArtFallback = document.getElementById('bottom-art-fallback');
+  const bottomTrackTitle = document.getElementById('bottom-track-title');
+  const bottomTrackArtist = document.getElementById('bottom-track-artist');
+
+  const btnPrev = document.getElementById('btn-prev');
+  const btnPlayPause = document.getElementById('btn-play-pause');
+  const barIconPlay = document.getElementById('bar-icon-play');
+  const barIconPause = document.getElementById('bar-icon-pause');
+  const btnNext = document.getElementById('btn-next');
+  const btnStop = document.getElementById('btn-stop');
+
+  const btnMute = document.getElementById('btn-mute');
+  const iconVolOn = document.getElementById('icon-vol-on');
+  const iconVolMuted = document.getElementById('icon-vol-muted');
+  const btnVolDown = document.getElementById('btn-vol-down');
+  const btnVolUp = document.getElementById('btn-vol-up');
+  const volumeSlider = document.getElementById('volume-slider');
+  const volumeValue = document.getElementById('volume-value');
+
+  // Toast & Screensaver Elements
+  const appToast = document.getElementById('app-toast');
+  const screensaverEl = document.getElementById('screensaver');
+  const clockFrameEl = document.getElementById('clock-frame');
+  const screensaverFallbackEl = document.getElementById('screensaver-fallback');
+  const screensaverFallbackClockEl = document.getElementById('screensaver-fallback-clock');
+  const screensaverFallbackNoteEl = document.getElementById('screensaver-fallback-note');
+  const screensaverWakeLayer = document.getElementById('screensaver-wake-layer');
+  const screensaverCustomizeBtn = document.getElementById('screensaver-customize-btn');
+  const screensaverExitBtn = document.getElementById('screensaver-exit-btn');
 
   // ==========================================================================
   // Application State
   // ==========================================================================
 
+  let currentView = 'home';
+  let screensaverEnabled = DEFAULT_SCREENSAVER_ENABLED;
+  let idleTimeoutSec = DEFAULT_IDLE_TIMEOUT_SEC;
+  let idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_SEC * 1000;
+  let selectedClock = DEFAULT_CLOCK_FILE;
+  let availableClocks = [DEFAULT_CLOCK_FILE];
+  let radioStations = DEFAULT_RADIO_STATIONS.slice();
+  let podcastFeeds = [];
+  let activeRadioUri = '';
+
   let idleTimerId = null;
   let isScreensaverActive = false;
-  let lastStateSignature = null;
+  let manualSleepTimestamp = 0;
+  let toastTimeoutId = null;
+
   let socket = null;
+  let volumioState = {
+    status: 'stop',
+    service: '',
+    title: '',
+    artist: '',
+    album: '',
+    albumart: '',
+    uri: '',
+    seek: 0,
+    duration: 0,
+    volume: 50,
+    mute: false
+  };
+
+  let lastWakeStatus = '';
+  let lastWakeTrackKey = '';
+  let volumeDebounceTimer = null;
+  let isDraggingVolume = false;
+  let activeBrowseContext = null; // 'cd' | 'podcasts' | 'volumio-radio'
+  let cdTracksCache = [];
+  let volumioPodcastShowsCache = [];
+  let viewingPodcastEpisodes = false;
 
   // ==========================================================================
-  // Digital Clock (Updated every second)
+  // Live Clocks & In-App Toast
   // ==========================================================================
-
-  function formatTimeHHMM(date) {
-    const hours = String(date.getHours()).padStart(2, '0');
-    const minutes = String(date.getMinutes()).padStart(2, '0');
-    return hours + ':' + minutes;
-  }
 
   function updateClocks() {
     const now = new Date();
-    const formatted = formatTimeHHMM(now);
+    const hh = String(now.getHours()).padStart(2, '0');
+    const mm = String(now.getMinutes()).padStart(2, '0');
+    const formatted = hh + ':' + mm;
 
-    if (screensaverClockEl) {
-      screensaverClockEl.textContent = formatted;
+    if (headerClockEl) {
+      headerClockEl.textContent = formatted;
     }
-    if (headerClock) {
-      headerClock.textContent = formatted;
+    if (screensaverFallbackClockEl) {
+      screensaverFallbackClockEl.textContent = formatted;
+    }
+  }
+
+  function showToast(message) {
+    if (!appToast) {
+      return;
+    }
+    appToast.textContent = message;
+    appToast.classList.remove('hidden');
+
+    if (toastTimeoutId !== null) {
+      clearTimeout(toastTimeoutId);
+    }
+    toastTimeoutId = setTimeout(function () {
+      appToast.classList.add('hidden');
+    }, 2800);
+  }
+
+  // ==========================================================================
+  // View Router
+  // ==========================================================================
+
+  function navigateToView(viewName) {
+    if (!views[viewName]) {
+      return;
+    }
+
+    currentView = viewName;
+
+    Object.keys(views).forEach(function (key) {
+      if (views[key]) {
+        views[key].classList.toggle('active', key === viewName);
+      }
+    });
+
+    if (viewContainer) {
+      viewContainer.scrollTop = 0;
+    }
+
+    if (homeBtn) {
+      homeBtn.classList.toggle('hidden', viewName === 'home');
+    }
+
+    if (viewTitleEl) {
+      viewTitleEl.textContent = VIEW_TITLES[viewName] || 'CoreZoneDisplay';
+    }
+
+    if (viewName === 'radio') {
+      renderRadioPresets();
+    } else if (viewName === 'cd') {
+      requestCdLibrary();
+    } else if (viewName === 'podcasts') {
+      renderPodcastsHome();
+    } else if (viewName === 'settings') {
+      populateSettingsForm();
     }
   }
 
   // ==========================================================================
-  // Idle / Screensaver Watchdog Timer
+  // Config API (/api/config) & Clock Submodule Mounting with Fallback Check
   // ==========================================================================
+
+  /**
+   * Ensures ClockWeb's MainClockSelector.html has a default clock pre-selected
+   * in localStorage so it auto-launches into a full-screen running clock on first run.
+   */
+  function ensureClockWebAutoLaunchDefaults() {
+    try {
+      if (!localStorage.getItem('clockweb_saved_clock_id_v1')) {
+        localStorage.setItem('clockweb_saved_clock_id_v1', 'casio-gac-2500-3a');
+      }
+      if (localStorage.getItem('clockweb_auto_launch_v1') === null) {
+        localStorage.setItem('clockweb_auto_launch_v1', 'true');
+      }
+    } catch (e) {
+      // Ignore storage access errors
+    }
+  }
+
+  function applyClockSource(clockFileName) {
+    ensureClockWebAutoLaunchDefaults();
+
+    const resolvedClock = (clockFileName || DEFAULT_CLOCK_FILE).trim() || DEFAULT_CLOCK_FILE;
+    selectedClock = resolvedClock;
+    const targetSrc = '/clocks/' + resolvedClock;
+
+    // Fetch targetSrc and verify it is a genuine clock HTML page (not index.html fallback)
+    fetch(targetSrc, { method: 'GET', cache: 'no-store' })
+      .then(function (res) {
+        if (!res.ok) {
+          throw new Error('HTTP ' + res.status);
+        }
+        return res.text();
+      })
+      .then(function (htmlText) {
+        if (
+          !htmlText ||
+          htmlText.indexOf('CoreZoneDisplay Controller') !== -1 ||
+          htmlText.indexOf('id="main-ui"') !== -1
+        ) {
+          throw new Error('Clock submodule not mounted on server');
+        }
+        if (clockFrameEl) {
+          clockFrameEl.classList.remove('hidden');
+          if (clockFrameEl.getAttribute('src') !== targetSrc) {
+            clockFrameEl.setAttribute('src', targetSrc);
+          }
+        }
+        if (screensaverFallbackEl) {
+          screensaverFallbackEl.classList.add('hidden');
+        }
+        if (screensaverCustomizeBtn) {
+          screensaverCustomizeBtn.classList.remove('hidden');
+        }
+      })
+      .catch(function () {
+        if (clockFrameEl) {
+          clockFrameEl.classList.add('hidden');
+          clockFrameEl.setAttribute('src', 'about:blank');
+        }
+        if (screensaverFallbackEl) {
+          screensaverFallbackEl.classList.remove('hidden');
+        }
+        if (screensaverCustomizeBtn) {
+          screensaverCustomizeBtn.classList.add('hidden');
+        }
+        if (screensaverFallbackNoteEl) {
+          screensaverFallbackNoteEl.textContent =
+            'Tap anywhere to return to player';
+        }
+      });
+  }
+
+  function applyConfigObject(cfg) {
+    if (!cfg || typeof cfg !== 'object') {
+      return;
+    }
+
+    screensaverEnabled =
+      cfg.screensaverEnabled !== undefined
+        ? Boolean(cfg.screensaverEnabled)
+        : DEFAULT_SCREENSAVER_ENABLED;
+
+    const parsedSec = Number(cfg.idleTimeoutSec);
+    idleTimeoutSec =
+      !isNaN(parsedSec) && parsedSec > 0 ? parsedSec : DEFAULT_IDLE_TIMEOUT_SEC;
+    idleTimeoutMs = idleTimeoutSec * 1000;
+
+    if (Array.isArray(cfg.availableClocks) && cfg.availableClocks.length > 0) {
+      availableClocks = cfg.availableClocks.slice();
+    }
+
+    applyClockSource(cfg.selectedClock || DEFAULT_CLOCK_FILE);
+
+    if (Array.isArray(cfg.radioStations) && cfg.radioStations.length > 0) {
+      radioStations = cfg.radioStations.map(function (st, idx) {
+        const url = String(st.url || st.uri || '').trim();
+        return {
+          id: st.id || idx + 1,
+          name: String(st.name || 'Station ' + (idx + 1)).trim(),
+          url: url,
+          uri: url
+        };
+      });
+    }
+
+    if (Array.isArray(cfg.podcastFeeds)) {
+      podcastFeeds = cfg.podcastFeeds.slice();
+    }
+
+    if (tileBadgeRadio) {
+      tileBadgeRadio.textContent = radioStations.length + ' Presets';
+    }
+
+    renderRadioPresets();
+    if (currentView === 'settings') {
+      populateSettingsForm();
+    }
+    if (currentView === 'podcasts' && !viewingPodcastEpisodes) {
+      renderPodcastsHome();
+    }
+  }
+
+  function fetchPluginConfig() {
+    return fetch('/api/config', { cache: 'no-store' })
+      .then(function (res) {
+        if (!res.ok) {
+          throw new Error('HTTP ' + res.status);
+        }
+        return res.json();
+      })
+      .then(function (cfg) {
+        applyConfigObject(cfg);
+      })
+      .catch(function (err) {
+        console.warn('CoreZoneDisplay: /api/config fallback:', err.message);
+        renderRadioPresets();
+      })
+      .finally(function () {
+        if (!isScreensaverActive) {
+          resetIdleTimer();
+        }
+      });
+  }
+
+  function savePluginConfig(partialPayload, successMsg) {
+    return fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(partialPayload)
+    })
+      .then(function (res) {
+        if (!res.ok) {
+          throw new Error('HTTP ' + res.status);
+        }
+        return res.json();
+      })
+      .then(function (result) {
+        if (result && result.config) {
+          applyConfigObject(result.config);
+        }
+        showToast(successMsg || 'Settings saved');
+        return result;
+      })
+      .catch(function (err) {
+        showToast('Failed to save: ' + err.message);
+      });
+  }
+
+  // ==========================================================================
+  // In-App Settings View
+  // ==========================================================================
+
+  function populateSettingsForm() {
+    if (settingScreensaverEnabled) {
+      settingScreensaverEnabled.checked = Boolean(screensaverEnabled);
+    }
+    if (settingIdleTimeout) {
+      settingIdleTimeout.value = String(idleTimeoutSec);
+    }
+
+    if (settingSelectedClock) {
+      settingSelectedClock.innerHTML = '';
+      const clocks = availableClocks.slice();
+      if (clocks.indexOf(selectedClock) === -1) {
+        clocks.push(selectedClock);
+      }
+      clocks.forEach(function (clockName) {
+        const opt = document.createElement('option');
+        opt.value = clockName;
+        opt.textContent = clockName;
+        if (clockName === selectedClock) {
+          opt.selected = true;
+        }
+        settingSelectedClock.appendChild(opt);
+      });
+    }
+
+    if (settingRadioList) {
+      settingRadioList.innerHTML = '';
+      for (var i = 0; i < 5; i++) {
+        const preset = radioStations[i] || DEFAULT_RADIO_STATIONS[i];
+        const row = document.createElement('div');
+        row.className = 'settings-radio-row';
+        row.innerHTML =
+          '<span class="settings-radio-badge">PRESET ' + (i + 1) + '</span>' +
+          '<input type="text" class="settings-input setting-radio-name" data-idx="' + i + '" placeholder="Station Name" />' +
+          '<input type="url" class="settings-input setting-radio-url" data-idx="' + i + '" placeholder="https://stream-url..." />';
+
+        row.querySelector('.setting-radio-name').value = preset.name || '';
+        row.querySelector('.setting-radio-url').value = preset.url || '';
+        settingRadioList.appendChild(row);
+      }
+    }
+  }
+
+  function handleSaveSettingsFromView() {
+    const newEnabled = settingScreensaverEnabled
+      ? Boolean(settingScreensaverEnabled.checked)
+      : screensaverEnabled;
+
+    const newTimeoutSec = Math.max(
+      5,
+      parseInt(settingIdleTimeout && settingIdleTimeout.value, 10) || DEFAULT_IDLE_TIMEOUT_SEC
+    );
+
+    const newClock =
+      (settingSelectedClock && settingSelectedClock.value) || DEFAULT_CLOCK_FILE;
+
+    const updatedStations = radioStations.slice();
+    const nameInputs = document.querySelectorAll('.setting-radio-name');
+    const urlInputs = document.querySelectorAll('.setting-radio-url');
+
+    for (var i = 0; i < 5; i++) {
+      const def = DEFAULT_RADIO_STATIONS[i];
+      const nameVal =
+        nameInputs[i] && nameInputs[i].value.trim() ? nameInputs[i].value.trim() : def.name;
+      const urlVal =
+        urlInputs[i] && urlInputs[i].value.trim() ? urlInputs[i].value.trim() : def.url;
+      updatedStations[i] = {
+        id: i + 1,
+        name: nameVal,
+        url: urlVal,
+        uri: urlVal
+      };
+    }
+
+    savePluginConfig(
+      {
+        screensaverEnabled: newEnabled,
+        idleTimeoutSec: newTimeoutSec,
+        selectedClock: newClock,
+        radioStations: updatedStations
+      },
+      'Settings saved & synced with Volumio'
+    );
+  }
+
+  // ==========================================================================
+  // Radio View: Presets, Quick-Add Modal & Volumio My Web Radios Import
+  // ==========================================================================
+
+  function extractStreamHost(urlStr) {
+    try {
+      const parsed = new URL(urlStr);
+      return parsed.hostname.replace(/^www\./, '');
+    } catch (e) {
+      return 'Live Stream';
+    }
+  }
+
+  function openRadioModal(slotIndex, prefillName, prefillUrl) {
+    if (!radioModal) {
+      return;
+    }
+
+    if (radioModalSlot) {
+      radioModalSlot.innerHTML = '';
+      for (var i = 0; i < Math.max(5, radioStations.length); i++) {
+        const current = radioStations[i];
+        const opt = document.createElement('option');
+        opt.value = String(i);
+        opt.textContent =
+          'Preset ' + (i + 1) + (current && current.name ? ' (' + current.name + ')' : '');
+        radioModalSlot.appendChild(opt);
+      }
+      const addNewOpt = document.createElement('option');
+      addNewOpt.value = '-1';
+      addNewOpt.textContent = '+ Add as New Preset Slot';
+      radioModalSlot.appendChild(addNewOpt);
+
+      radioModalSlot.value = String(slotIndex !== undefined ? slotIndex : -1);
+    }
+
+    const existing = slotIndex >= 0 && radioStations[slotIndex] ? radioStations[slotIndex] : null;
+    if (radioModalName) {
+      radioModalName.value =
+        prefillName !== undefined ? prefillName : existing ? existing.name : '';
+    }
+    if (radioModalUrl) {
+      radioModalUrl.value =
+        prefillUrl !== undefined ? prefillUrl : existing ? existing.url : '';
+    }
+
+    radioModal.classList.remove('hidden');
+  }
+
+  function closeRadioModal() {
+    if (radioModal) {
+      radioModal.classList.add('hidden');
+    }
+  }
+
+  function renderRadioPresets() {
+    if (!radioPresetsGrid) {
+      return;
+    }
+
+    radioPresetsGrid.innerHTML = '';
+
+    radioStations.forEach(function (station, index) {
+      const card = document.createElement('div');
+      card.className = 'radio-preset-card';
+      card.setAttribute('role', 'button');
+      card.setAttribute('tabindex', '0');
+
+      const isPlayingThisStation =
+        volumioState.status === 'play' &&
+        ((activeRadioUri && activeRadioUri === station.uri) ||
+          (volumioState.uri && volumioState.uri === station.uri) ||
+          (volumioState.title && volumioState.title.toLowerCase() === station.name.toLowerCase()));
+
+      if (isPlayingThisStation) {
+        card.classList.add('active');
+      }
+
+      const numStr = String(index + 1).padStart(2, '0');
+      const hostLabel = extractStreamHost(station.uri);
+
+      card.innerHTML =
+        '<div class="radio-card-header">' +
+          '<span class="radio-preset-num">PRESET ' + numStr + '</span>' +
+          '<div class="radio-card-header-right">' +
+            '<span class="radio-live-indicator">● ON AIR</span>' +
+            '<button type="button" class="radio-edit-chip" title="Edit this station">Edit</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="radio-card-body">' +
+          '<span class="radio-preset-name"></span>' +
+          '<span class="radio-preset-host"></span>' +
+        '</div>';
+
+      card.querySelector('.radio-preset-name').textContent = station.name;
+      card.querySelector('.radio-preset-host').textContent = hostLabel;
+
+      const editChip = card.querySelector('.radio-edit-chip');
+      editChip.addEventListener('click', function (evt) {
+        evt.stopPropagation();
+        openRadioModal(index);
+      });
+
+      card.addEventListener('click', function () {
+        playRadioStation(station);
+      });
+
+      radioPresetsGrid.appendChild(card);
+    });
+  }
+
+  function stopAndReplacePlay(payload) {
+    if (!socket || !socket.connected) {
+      showToast('Volumio is offline (port 3000) — cannot start playback');
+      return;
+    }
+
+    socket.emit('stop');
+    socket.emit('clearQueue');
+
+    setTimeout(function () {
+      socket.emit('replaceAndPlay', payload);
+    }, 120);
+  }
+
+  function playRadioStation(station) {
+    if (!station || !station.uri) {
+      return;
+    }
+
+    activeRadioUri = station.uri;
+    renderRadioPresets();
+
+    stopAndReplacePlay({
+      service: 'webradio',
+      type: 'webradio',
+      title: station.name,
+      uri: station.uri
+    });
+  }
+
+  function loadVolumioMyWebRadios() {
+    if (!socket || !socket.connected) {
+      showToast('Connect to Volumio first to load My Web Radios');
+      return;
+    }
+    activeBrowseContext = 'volumio-radio';
+    if (volumioRadiosSection) {
+      volumioRadiosSection.classList.remove('hidden');
+    }
+    if (volumioRadiosList) {
+      volumioRadiosList.innerHTML =
+        '<div class="empty-state-box"><strong>Loading Volumio My Web Radios...</strong></div>';
+    }
+    socket.emit('browseLibrary', { uri: 'radio/myWebRadio' });
+  }
+
+  // ==========================================================================
+  // Podcasts View: Custom RSS Feeds + Volumio browseLibrary
+  // ==========================================================================
+
+  function openPodcastModal() {
+    if (!podcastModal) {
+      return;
+    }
+    if (podcastModalName) podcastModalName.value = '';
+    if (podcastModalUrl) podcastModalUrl.value = '';
+    podcastModal.classList.remove('hidden');
+  }
+
+  function closePodcastModal() {
+    if (podcastModal) {
+      podcastModal.classList.add('hidden');
+    }
+  }
+
+  function renderPodcastsHome() {
+    viewingPodcastEpisodes = false;
+    if (podcastBackBtn) {
+      podcastBackBtn.classList.add('hidden');
+    }
+    if (podcastStatusLabel) {
+      podcastStatusLabel.textContent = 'Podcast Shows & Saved RSS Feeds';
+    }
+
+    // Also ask Volumio for any installed podcast plugin feeds in the background
+    if (socket && socket.connected && activeBrowseContext !== 'podcasts') {
+      activeBrowseContext = 'podcasts';
+      socket.emit('browseLibrary', { uri: 'podcasts' });
+    }
+
+    renderCombinedPodcastShows();
+  }
+
+  function renderCombinedPodcastShows() {
+    if (!podcastList || viewingPodcastEpisodes) {
+      return;
+    }
+
+    podcastList.innerHTML = '';
+
+    // 1. Render saved custom RSS feeds from config.json
+    podcastFeeds.forEach(function (feed, idx) {
+      const btn = document.createElement('div');
+      btn.className = 'media-item-btn';
+      btn.setAttribute('role', 'button');
+      btn.setAttribute('tabindex', '0');
+
+      btn.innerHTML =
+        '<div class="media-item-left">' +
+          '<span class="media-item-index">RSS</span>' +
+          '<div class="media-item-text">' +
+            '<span class="media-item-title"></span>' +
+            '<span class="media-item-sub"></span>' +
+          '</div>' +
+        '</div>' +
+        '<button type="button" class="radio-edit-chip" title="Remove feed">Remove</button>';
+
+      btn.querySelector('.media-item-title').textContent = feed.name;
+      btn.querySelector('.media-item-sub').textContent = feed.rssUrl;
+
+      btn.querySelector('.radio-edit-chip').addEventListener('click', function (evt) {
+        evt.stopPropagation();
+        const remaining = podcastFeeds.filter(function (_, i) {
+          return i !== idx;
+        });
+        savePluginConfig({ podcastFeeds: remaining }, 'Removed podcast feed');
+      });
+
+      btn.addEventListener('click', function () {
+        loadPodcastRssEpisodes(feed);
+      });
+
+      podcastList.appendChild(btn);
+    });
+
+    // 2. Render any shows discovered from Volumio's Podcasts plugin
+    volumioPodcastShowsCache.forEach(function (item) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'media-item-btn';
+      btn.innerHTML =
+        '<div class="media-item-left">' +
+          '<span class="media-item-index">▸</span>' +
+          '<div class="media-item-text">' +
+            '<span class="media-item-title"></span>' +
+            '<span class="media-item-sub">Volumio Podcast Library</span>' +
+          '</div>' +
+        '</div>';
+
+      btn.querySelector('.media-item-title').textContent = item.title || 'Podcast Show';
+
+      btn.addEventListener('click', function () {
+        if (socket && socket.connected) {
+          viewingPodcastEpisodes = true;
+          activeBrowseContext = 'podcasts-episodes';
+          if (podcastBackBtn) podcastBackBtn.classList.remove('hidden');
+          if (podcastStatusLabel) podcastStatusLabel.textContent = item.title || 'Episodes';
+          socket.emit('browseLibrary', { uri: item.uri });
+        }
+      });
+
+      podcastList.appendChild(btn);
+    });
+
+    // 3. Friendly Empty State Guide Card if no feeds exist yet
+    if (podcastFeeds.length === 0 && volumioPodcastShowsCache.length === 0) {
+      podcastList.innerHTML =
+        '<div class="empty-state-box">' +
+          '<strong>No Podcasts Added Yet</strong>' +
+          '<div class="empty-state-options">' +
+            '<p>• <strong>Option 1:</strong> Tap <strong>+ Add Podcast (RSS URL)</strong> above to paste any Podcast RSS feed or pick a 1-tap sample feed.</p>' +
+            '<p>• <strong>Option 2:</strong> Install/configure the Podcasts plugin in Volumio, or stream directly from your phone via <strong>Spotify Connect</strong>.</p>' +
+          '</div>' +
+        '</div>';
+    }
+  }
+
+  function loadPodcastRssEpisodes(feed) {
+    if (!feed || !feed.rssUrl || !podcastList) {
+      return;
+    }
+
+    viewingPodcastEpisodes = true;
+    if (podcastBackBtn) {
+      podcastBackBtn.classList.remove('hidden');
+    }
+    if (podcastStatusLabel) {
+      podcastStatusLabel.textContent = 'Loading ' + feed.name + '...';
+    }
+
+    podcastList.innerHTML =
+      '<div class="empty-state-box"><strong>Fetching latest episodes...</strong><span>' +
+      feed.rssUrl +
+      '</span></div>';
+
+    fetch('/api/podcasts/episodes?url=' + encodeURIComponent(feed.rssUrl), { cache: 'no-store' })
+      .then(function (res) {
+        return res.json();
+      })
+      .then(function (data) {
+        if (!data || data.status !== 'ok' || !Array.isArray(data.episodes)) {
+          throw new Error((data && data.message) || 'Invalid RSS response');
+        }
+
+        if (podcastStatusLabel) {
+          podcastStatusLabel.textContent =
+            (feed.name || data.feedTitle) + ' (' + data.episodes.length + ' Latest Episodes)';
+        }
+
+        if (data.episodes.length === 0) {
+          podcastList.innerHTML =
+            '<div class="empty-state-box"><strong>No playable audio episodes found in RSS feed</strong></div>';
+          return;
+        }
+
+        podcastList.innerHTML = '';
+        data.episodes.forEach(function (ep, idx) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'media-item-btn';
+          btn.innerHTML =
+            '<div class="media-item-left">' +
+              '<span class="media-item-index">' + String(idx + 1).padStart(2, '0') + '</span>' +
+              '<div class="media-item-text">' +
+                '<span class="media-item-title"></span>' +
+                '<span class="media-item-sub"></span>' +
+              '</div>' +
+            '</div>' +
+            '<span class="media-item-action-chip">▶ Play</span>';
+
+          btn.querySelector('.media-item-title').textContent = ep.title;
+          const metaParts = [];
+          if (ep.pubDate) metaParts.push(ep.pubDate.replace(/\s+\d{2}:\d{2}:\d{2}.*$/, ''));
+          if (ep.duration) metaParts.push(ep.duration);
+          btn.querySelector('.media-item-sub').textContent =
+            metaParts.join(' • ') || feed.name || 'Podcast Episode';
+
+          btn.addEventListener('click', function () {
+            showToast('Playing: ' + ep.title);
+            stopAndReplacePlay({
+              service: 'webradio',
+              type: 'webradio',
+              title: ep.title,
+              artist: feed.name || data.feedTitle || 'Podcast',
+              uri: ep.audioUrl
+            });
+          });
+
+          podcastList.appendChild(btn);
+        });
+      })
+      .catch(function (err) {
+        if (podcastStatusLabel) {
+          podcastStatusLabel.textContent = 'RSS Error';
+        }
+        podcastList.innerHTML =
+          '<div class="empty-state-box"><strong>Could not load Podcast RSS feed</strong><span>' +
+          err.message +
+          '</span></div>';
+      });
+  }
+
+  // ==========================================================================
+  // CD Player & Volumio browseLibrary Handler
+  // ==========================================================================
+
+  function renderEmptyMediaList(container, title, subtitle) {
+    if (!container) {
+      return;
+    }
+    container.innerHTML =
+      '<div class="empty-state-box">' +
+        '<strong>' + title + '</strong>' +
+        '<span>' + subtitle + '</span>' +
+      '</div>';
+  }
+
+  function requestCdLibrary() {
+    activeBrowseContext = 'cd';
+    if (!socket || !socket.connected) {
+      renderEmptyMediaList(
+        cdTrackList,
+        'Volumio Not Connected',
+        'Connect to Volumio backend on port 3000 to browse CD tracks.'
+      );
+      return;
+    }
+
+    if (cdStatusLabel) {
+      cdStatusLabel.textContent = 'Scanning Optical Disc...';
+    }
+    socket.emit('browseLibrary', { uri: 'cd' });
+  }
+
+  function extractBrowseItems(libraryData) {
+    if (!libraryData || !libraryData.navigation || !Array.isArray(libraryData.navigation.lists)) {
+      return [];
+    }
+    const items = [];
+    libraryData.navigation.lists.forEach(function (list) {
+      if (list && Array.isArray(list.items)) {
+        list.items.forEach(function (item) {
+          items.push(item);
+        });
+      }
+    });
+    return items;
+  }
+
+  function handlePushBrowseLibrary(libraryData) {
+    const items = extractBrowseItems(libraryData);
+
+    if (activeBrowseContext === 'cd') {
+      cdTracksCache = items;
+      if (cdStatusLabel) {
+        cdStatusLabel.textContent = items.length
+          ? 'Audio CD (' + items.length + ' Tracks)'
+          : 'No Audio CD Detected';
+      }
+
+      if (!items.length) {
+        renderEmptyMediaList(
+          cdTrackList,
+          'No Disc or Tracks Found',
+          'Insert an audio CD into your optical drive and tap Reload.'
+        );
+        return;
+      }
+
+      cdTrackList.innerHTML = '';
+      items.forEach(function (item, idx) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'media-item-btn';
+        btn.innerHTML =
+          '<div class="media-item-left">' +
+            '<span class="media-item-index">' + String(idx + 1).padStart(2, '0') + '</span>' +
+            '<div class="media-item-text">' +
+              '<span class="media-item-title"></span>' +
+              '<span class="media-item-sub"></span>' +
+            '</div>' +
+          '</div>' +
+          '<span class="media-item-action-chip">▶ Play</span>';
+
+        btn.querySelector('.media-item-title').textContent = item.title || 'Track ' + (idx + 1);
+        btn.querySelector('.media-item-sub').textContent = item.artist || 'Audio CD';
+
+        btn.addEventListener('click', function () {
+          stopAndReplacePlay({
+            service: item.service || 'cd',
+            type: item.type || 'song',
+            title: item.title || 'Track ' + (idx + 1),
+            artist: item.artist || 'Audio CD',
+            uri: item.uri
+          });
+        });
+
+        cdTrackList.appendChild(btn);
+      });
+    } else if (activeBrowseContext === 'volumio-radio') {
+      if (!volumioRadiosList) {
+        return;
+      }
+      if (!items.length) {
+        renderEmptyMediaList(
+          volumioRadiosList,
+          'No Stations Found in Volumio My Web Radios',
+          'You can add any stream URL directly using "+ Add / Edit Stations" above.'
+        );
+        return;
+      }
+
+      volumioRadiosList.innerHTML = '';
+      items.forEach(function (item, idx) {
+        const card = document.createElement('div');
+        card.className = 'media-item-btn';
+        card.setAttribute('role', 'button');
+        card.setAttribute('tabindex', '0');
+        card.innerHTML =
+          '<div class="media-item-left">' +
+            '<span class="media-item-index">' + String(idx + 1).padStart(2, '0') + '</span>' +
+            '<div class="media-item-text">' +
+              '<span class="media-item-title"></span>' +
+              '<span class="media-item-sub"></span>' +
+            '</div>' +
+          '</div>' +
+          '<button type="button" class="radio-edit-chip">+ Save to Preset</button>';
+
+        card.querySelector('.media-item-title').textContent = item.title || 'Web Radio';
+        card.querySelector('.media-item-sub').textContent = item.uri || 'Volumio Web Radio';
+
+        card.querySelector('.radio-edit-chip').addEventListener('click', function (evt) {
+          evt.stopPropagation();
+          openRadioModal(-1, item.title || 'Web Radio', item.uri || '');
+        });
+
+        card.addEventListener('click', function () {
+          playRadioStation({
+            name: item.title || 'Web Radio',
+            uri: item.uri
+          });
+        });
+
+        volumioRadiosList.appendChild(card);
+      });
+    } else if (activeBrowseContext === 'podcasts') {
+      volumioPodcastShowsCache = items;
+      renderCombinedPodcastShows();
+    } else if (activeBrowseContext === 'podcasts-episodes') {
+      if (!podcastList) {
+        return;
+      }
+      if (!items.length) {
+        renderEmptyMediaList(podcastList, 'No Episodes Found', 'Tap Back to Shows');
+        return;
+      }
+      podcastList.innerHTML = '';
+      items.forEach(function (item, idx) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'media-item-btn';
+        btn.innerHTML =
+          '<div class="media-item-left">' +
+            '<span class="media-item-index">' + String(idx + 1).padStart(2, '0') + '</span>' +
+            '<div class="media-item-text">' +
+              '<span class="media-item-title"></span>' +
+              '<span class="media-item-sub">Volumio Podcast Episode</span>' +
+            '</div>' +
+          '</div>' +
+          '<span class="media-item-action-chip">▶ Play</span>';
+
+        btn.querySelector('.media-item-title').textContent = item.title || 'Episode ' + (idx + 1);
+        btn.addEventListener('click', function () {
+          stopAndReplacePlay({
+            service: item.service || 'podcasts',
+            type: item.type || 'song',
+            title: item.title,
+            artist: item.artist || 'Podcast',
+            uri: item.uri
+          });
+        });
+        podcastList.appendChild(btn);
+      });
+    }
+  }
+
+  // ==========================================================================
+  // Watchdog Idle Timer & Screensaver
+  // ==========================================================================
+
+  function clearIdleTimer() {
+    if (idleTimerId !== null) {
+      clearTimeout(idleTimerId);
+      idleTimerId = null;
+    }
+  }
+
+  function setClockInteractiveMode(isInteractive) {
+    if (clockFrameEl) {
+      clockFrameEl.classList.toggle('interactive', Boolean(isInteractive));
+    }
+    if (screensaverWakeLayer) {
+      screensaverWakeLayer.classList.toggle('hidden', Boolean(isInteractive));
+    }
+    if (screensaverCustomizeBtn) {
+      screensaverCustomizeBtn.classList.toggle('hidden', Boolean(isInteractive));
+    }
+    if (screensaverExitBtn) {
+      screensaverExitBtn.classList.toggle('hidden', !isInteractive);
+    }
+
+    if (isInteractive && clockFrameEl && clockFrameEl.contentWindow) {
+      try {
+        clockFrameEl.contentWindow.postMessage({ type: 'CLOCKWEB_OPEN_SELECTOR' }, '*');
+      } catch (e) {
+        // Ignore cross-window message errors
+      }
+    }
+  }
 
   function showScreensaver() {
     if (!screensaverEl || isScreensaverActive) {
       return;
     }
+    clearIdleTimer();
     isScreensaverActive = true;
+    manualSleepTimestamp = Date.now();
+    setClockInteractiveMode(false);
     screensaverEl.classList.remove('hidden');
     screensaverEl.setAttribute('aria-hidden', 'false');
   }
@@ -96,71 +1152,117 @@
       return;
     }
     isScreensaverActive = false;
+    setClockInteractiveMode(false);
     screensaverEl.classList.add('hidden');
     screensaverEl.setAttribute('aria-hidden', 'true');
   }
 
-  /**
-   * Resets the idle watchdog timer and wakes the screen if sleeping.
-   */
   function resetIdleTimer() {
     hideScreensaver();
+    clearIdleTimer();
 
-    if (idleTimerId !== null) {
-      clearTimeout(idleTimerId);
+    if (!screensaverEnabled) {
+      return;
     }
 
     idleTimerId = setTimeout(function () {
       showScreensaver();
-    }, IDLE_TIMEOUT_MS);
+    }, idleTimeoutMs);
   }
 
-  function bindUserActivityListeners() {
-    const interactionEvents = ['touchstart', 'click', 'mousemove'];
-
-    interactionEvents.forEach(function (eventName) {
-      window.addEventListener(
-        eventName,
-        function () {
-          resetIdleTimer();
-        },
-        { passive: true }
-      );
-    });
+  function triggerManualScreensaver(event) {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    manualSleepTimestamp = Date.now();
+    showScreensaver();
   }
 
   // ==========================================================================
-  // Volumio State & UI Rendering
+  // Volumio State Synchronization & UI Updates
   // ==========================================================================
 
   function setConnectionUI(isConnected, labelText) {
-    if (!connectionIndicator || !connectionStatus) {
+    if (connectionIndicator) {
+      connectionIndicator.classList.toggle('connected', Boolean(isConnected));
+      connectionIndicator.classList.toggle('disconnected', !isConnected);
+    }
+    if (connectionStatus) {
+      connectionStatus.textContent = labelText;
+    }
+  }
+
+  function resolveAlbumArtUrl(rawArt) {
+    if (!rawArt || typeof rawArt !== 'string') {
+      return '';
+    }
+    const trimmed = rawArt.trim();
+    if (!trimmed || (trimmed.indexOf('albumart') !== -1 && trimmed.endsWith('albumart'))) {
+      return '';
+    }
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('data:')) {
+      return trimmed;
+    }
+    if (trimmed.startsWith('/')) {
+      return VOLUMIO_BACKEND_URL + trimmed;
+    }
+    return VOLUMIO_BACKEND_URL + '/' + trimmed;
+  }
+
+  function updateArtworkElement(imgEl, fallbackEl, artUrl) {
+    if (!imgEl || !fallbackEl) {
       return;
     }
 
-    connectionIndicator.classList.toggle('connected', Boolean(isConnected));
-    connectionIndicator.classList.toggle('disconnected', !isConnected);
+    if (!artUrl) {
+      imgEl.classList.add('hidden');
+      fallbackEl.classList.remove('hidden');
+      return;
+    }
 
-    connectionStatus.classList.toggle('status-connected', Boolean(isConnected));
-    connectionStatus.classList.toggle('status-disconnected', !isConnected);
-    connectionStatus.textContent = labelText;
+    imgEl.onload = function () {
+      imgEl.classList.remove('hidden');
+      fallbackEl.classList.add('hidden');
+    };
+
+    imgEl.onerror = function () {
+      imgEl.classList.add('hidden');
+      fallbackEl.classList.remove('hidden');
+    };
+
+    if (imgEl.getAttribute('src') !== artUrl) {
+      imgEl.setAttribute('src', artUrl);
+    }
   }
 
-  /**
-   * Builds a signature of playback-relevant fields so we wake the screen
-   * whenever playback state, track, artist, or service actually changes.
-   */
-  function getPlaybackSignature(state) {
-    if (!state || typeof state !== 'object') {
-      return '';
+  function formatDurationSec(totalSec) {
+    const sec = Math.max(0, Math.floor(Number(totalSec) || 0));
+    const minutes = Math.floor(sec / 60);
+    const seconds = String(sec % 60).padStart(2, '0');
+    return minutes + ':' + seconds;
+  }
+
+  function getFriendlyServiceName(serviceRaw) {
+    const s = (serviceRaw || '').toLowerCase();
+    if (s.indexOf('spop') !== -1 || s.indexOf('spot') !== -1) {
+      return 'Spotify';
     }
-    return [
-      state.status || '',
-      state.title || '',
-      state.artist || '',
-      state.album || '',
-      state.service || ''
-    ].join('|');
+    if (s.indexOf('webradio') !== -1 || s.indexOf('radio') !== -1) {
+      return 'Webradio';
+    }
+    if (s.indexOf('cd') !== -1 || s.indexOf('nanosound') !== -1) {
+      return 'CD';
+    }
+    if (s.indexOf('podcast') !== -1 || s.indexOf('rss') !== -1) {
+      return 'Podcast';
+    }
+    return serviceRaw || 'Volumio';
+  }
+
+  function isSpotifyService(serviceRaw) {
+    const s = (serviceRaw || '').toLowerCase();
+    return s.indexOf('spop') !== -1 || s.indexOf('spot') !== -1;
   }
 
   function handlePushState(state) {
@@ -168,64 +1270,543 @@
       return;
     }
 
+    const prevStatus = lastWakeStatus;
+    const prevTrackKey = lastWakeTrackKey;
+
+    volumioState = Object.assign({}, volumioState, state);
+
     const status = (state.status || 'stop').toLowerCase();
     const isPlaying = status === 'play';
-    const title = (state.title || '').trim();
-    const artist = (state.artist || '').trim();
-    const service = (state.service || 'Volumio').trim();
+    const serviceName = getFriendlyServiceName(state.service);
+    const isWebradio = serviceName === 'Webradio' || state.trackType === 'webradio';
+    const isSpotify = isSpotifyService(state.service);
 
-    // Update Main UI Playback Badge & Service
-    if (playbackStateBadge) {
-      playbackStateBadge.textContent = status.toUpperCase();
-      playbackStateBadge.classList.toggle('playing', isPlaying);
+    const title = (state.title || '').trim() || (isPlaying ? 'Streaming Audio' : 'Ready to Play');
+    const artist =
+      (state.artist || '').trim() ||
+      (isPlaying ? 'Active Source: ' + serviceName : 'Select a source above');
+    const album = (state.album || '').trim();
+
+    if (bottomTrackTitle) {
+      bottomTrackTitle.textContent = title;
+    }
+    if (bottomTrackArtist) {
+      bottomTrackArtist.textContent = artist;
     }
 
-    if (playbackService) {
-      playbackService.textContent = service;
+    const artUrl = resolveAlbumArtUrl(state.albumart);
+    updateArtworkElement(bottomAlbumArt, bottomArtFallback, artUrl);
+    updateArtworkElement(npAlbumArt, npArtFallback, artUrl);
+
+    if (barIconPlay && barIconPause) {
+      barIconPlay.classList.toggle('hidden', isPlaying);
+      barIconPause.classList.toggle('hidden', !isPlaying);
     }
 
-    // Update Main UI Track Title & Artist
-    if (mainTrackTitle) {
-      mainTrackTitle.textContent = title || (isPlaying ? 'Playing Audio' : 'Ready to Play');
-    }
-
-    if (mainTrackArtist) {
-      if (artist) {
-        mainTrackArtist.textContent = artist;
-      } else if (isPlaying) {
-        mainTrackArtist.textContent = 'Streaming via ' + service;
-      } else {
-        mainTrackArtist.textContent = 'Select a source below or stream via Spotify Connect';
+    if (!isDraggingVolume && typeof state.volume === 'number' && !isNaN(state.volume)) {
+      const clampedVol = Math.max(0, Math.min(100, Math.round(state.volume)));
+      if (volumeSlider) {
+        volumeSlider.value = String(clampedVol);
+      }
+      if (volumeValue) {
+        volumeValue.textContent = state.mute ? 'MUTE' : clampedVol + '%';
       }
     }
 
-    // Update Screensaver Subtle "Now Playing" Line
-    if (screensaverNowPlayingEl && screensaverTrackInfoEl) {
-      if (isPlaying && (title || artist)) {
-        const parts = [];
-        if (title) parts.push(title);
-        if (artist) parts.push(artist);
-        screensaverTrackInfoEl.textContent = parts.join(' — ');
-        screensaverNowPlayingEl.classList.remove('hidden');
+    const isMuted = Boolean(state.mute);
+    if (btnMute) {
+      btnMute.classList.toggle('muted', isMuted);
+    }
+    if (iconVolOn && iconVolMuted) {
+      iconVolOn.classList.toggle('hidden', isMuted);
+      iconVolMuted.classList.toggle('hidden', !isMuted);
+    }
+
+    if (npTitle) npTitle.textContent = title;
+    if (npArtist) npArtist.textContent = artist;
+    if (npAlbum) npAlbum.textContent = album;
+
+    if (npSourceBadge) {
+      npSourceBadge.textContent = serviceName.toUpperCase();
+      npSourceBadge.classList.toggle('spotify', isSpotify);
+      npSourceBadge.classList.toggle('webradio', isWebradio);
+    }
+
+    if (npStatusBadge) {
+      npStatusBadge.textContent = status.toUpperCase();
+      npStatusBadge.classList.toggle('playing', isPlaying);
+    }
+
+    if (npIconPlay && npIconPause) {
+      npIconPlay.classList.toggle('hidden', isPlaying);
+      npIconPause.classList.toggle('hidden', !isPlaying);
+    }
+
+    const durationSec = Number(state.duration) || 0;
+    const seekSec = Math.floor((Number(state.seek) || 0) / 1000);
+    if (npProgressContainer) {
+      if (isWebradio || durationSec <= 0) {
+        npProgressContainer.classList.add('hidden');
       } else {
-        screensaverTrackInfoEl.textContent = '';
-        screensaverNowPlayingEl.classList.add('hidden');
+        npProgressContainer.classList.remove('hidden');
+        if (npSeekSlider) {
+          npSeekSlider.max = String(durationSec);
+          npSeekSlider.value = String(Math.min(durationSec, seekSec));
+        }
+        if (npTimeCurrent) {
+          npTimeCurrent.textContent = formatDurationSec(seekSec);
+        }
+        if (npTimeTotal) {
+          npTimeTotal.textContent = formatDurationSec(durationSec);
+        }
       }
     }
 
-    // Wake screen and reset watchdog timer on pushState changes
-    const currentSignature = getPlaybackSignature(state);
-    if (lastStateSignature !== currentSignature) {
-      lastStateSignature = currentSignature;
-      resetIdleTimer();
-    } else {
-      // Even if signature is identical, a pushState event was emitted
+    if (spotifyHeading && spotifySubtext) {
+      if (isSpotify && isPlaying) {
+        spotifyHeading.textContent = 'Spotify Connect Active — ' + title;
+        spotifySubtext.textContent = artist + (album ? ' • ' + album : '');
+      } else {
+        spotifyHeading.textContent = 'Ready for Spotify Connect';
+        spotifySubtext.textContent =
+          'Select this Volumio device from your Spotify app on your phone, tablet, or computer.';
+      }
+    }
+
+    sourceTiles.forEach(function (tile) {
+      const tileSource = tile.getAttribute('data-source');
+      tile.classList.remove('active-source', 'active-source-spotify');
+      if (isPlaying) {
+        if (tileSource === 'spotify' && isSpotify) {
+          tile.classList.add('active-source-spotify');
+        } else if (tileSource === 'radio' && isWebradio) {
+          tile.classList.add('active-source');
+        } else if (tileSource === 'cd' && serviceName === 'CD') {
+          tile.classList.add('active-source');
+        } else if (tileSource === 'podcasts' && serviceName === 'Podcast') {
+          tile.classList.add('active-source');
+        }
+      }
+    });
+
+    if (currentView === 'radio') {
+      renderRadioPresets();
+    }
+
+    const newTrackKey = (state.title || '') + '|' + (state.uri || '');
+    const statusChangedToPlay = status === 'play' && prevStatus !== 'play';
+    const trackChanged = newTrackKey !== prevTrackKey && Boolean(state.title || state.uri);
+
+    lastWakeStatus = status;
+    lastWakeTrackKey = newTrackKey;
+
+    if (statusChangedToPlay || trackChanged) {
       resetIdleTimer();
     }
   }
 
   // ==========================================================================
-  // Dynamic Socket.IO Loader & Connection
+  // Transport & Volume Control Actions
+  // ==========================================================================
+
+  function togglePlayPause() {
+    if (!socket || !socket.connected) {
+      return;
+    }
+    if (volumioState.status === 'play') {
+      socket.emit('pause');
+    } else {
+      socket.emit('play');
+    }
+  }
+
+  function sendTransportCommand(cmd) {
+    if (!socket || !socket.connected) {
+      return;
+    }
+    socket.emit(cmd);
+  }
+
+  function emitVolumeDebounced(newVol) {
+    const clamped = Math.max(0, Math.min(100, Math.round(Number(newVol) || 0)));
+    volumioState.volume = clamped;
+
+    if (volumeSlider) {
+      volumeSlider.value = String(clamped);
+    }
+    if (volumeValue) {
+      volumeValue.textContent = clamped + '%';
+    }
+
+    if (volumeDebounceTimer !== null) {
+      clearTimeout(volumeDebounceTimer);
+    }
+
+    volumeDebounceTimer = setTimeout(function () {
+      if (socket && socket.connected) {
+        socket.emit('volume', clamped);
+      }
+    }, 65);
+  }
+
+  function stepVolume(delta) {
+    const current = Number(volumioState.volume) || 0;
+    emitVolumeDebounced(current + delta);
+  }
+
+  function toggleMute() {
+    if (!socket || !socket.connected) {
+      return;
+    }
+    if (volumioState.mute) {
+      socket.emit('unmute');
+    } else {
+      socket.emit('mute');
+    }
+  }
+
+  // ==========================================================================
+  // Event Listeners
+  // ==========================================================================
+
+  function bindEventListeners() {
+    // Watchdog activity listeners when on #main-ui (does not close active screensaver on mousemove jitter)
+    ['touchstart', 'click', 'mousemove', 'scroll', 'keydown'].forEach(function (evtName) {
+      window.addEventListener(
+        evtName,
+        function (event) {
+          // While screensaver is active, only explicit wake layer tap/click/keydown wakes it
+          if (isScreensaverActive) {
+            if (evtName === 'keydown' && Date.now() - manualSleepTimestamp > 500) {
+              resetIdleTimer();
+            }
+            return;
+          }
+
+          if (
+            event &&
+            event.target &&
+            typeof event.target.closest === 'function' &&
+            (event.target.closest('#show-clock-btn') ||
+              event.target.closest('#setting-test-screensaver-btn'))
+          ) {
+            return;
+          }
+
+          resetIdleTimer();
+        },
+        { passive: true, capture: true }
+      );
+    });
+
+    // Wake layer inside #screensaver: tap or click anywhere wakes back to main UI
+    if (screensaverWakeLayer) {
+      ['click', 'touchstart'].forEach(function (evtName) {
+        screensaverWakeLayer.addEventListener(
+          evtName,
+          function (event) {
+            if (Date.now() - manualSleepTimestamp < 500) {
+              return;
+            }
+            if (event && typeof event.stopPropagation === 'function') {
+              event.stopPropagation();
+            }
+            resetIdleTimer();
+          },
+          { passive: true }
+        );
+      });
+    }
+
+    // "Change Clock Face" button inside #screensaver allows interacting with MainClockSelector.html
+    if (screensaverCustomizeBtn) {
+      screensaverCustomizeBtn.addEventListener('click', function (event) {
+        event.stopPropagation();
+        setClockInteractiveMode(true);
+      });
+    }
+
+    // "Back to Player" button inside #screensaver exits clock customization
+    if (screensaverExitBtn) {
+      screensaverExitBtn.addEventListener('click', function (event) {
+        event.stopPropagation();
+        resetIdleTimer();
+      });
+    }
+
+    // Manual Screensaver / Clock Buttons (Top Bar & Settings View)
+    if (showClockBtn) {
+      showClockBtn.addEventListener('click', triggerManualScreensaver);
+    }
+    if (settingTestScreensaverBtn) {
+      settingTestScreensaverBtn.addEventListener('click', triggerManualScreensaver);
+    }
+
+    // Top Bar Navigation Buttons
+    if (homeBtn) {
+      homeBtn.addEventListener('click', function () {
+        navigateToView('home');
+      });
+    }
+    if (settingsBtn) {
+      settingsBtn.addEventListener('click', function () {
+        navigateToView('settings');
+      });
+    }
+
+    // Home 2x2 Source Tiles
+    sourceTiles.forEach(function (tile) {
+      tile.addEventListener('click', function () {
+        const source = tile.getAttribute('data-source');
+        if (source === 'spotify') {
+          if (isSpotifyService(volumioState.service) && volumioState.status === 'play') {
+            navigateToView('nowplaying');
+          } else {
+            navigateToView('spotify');
+          }
+        } else if (source && views[source]) {
+          navigateToView(source);
+        }
+      });
+    });
+
+    // Radio View Actions & Modal
+    if (radioAddBtn) {
+      radioAddBtn.addEventListener('click', function () {
+        openRadioModal(0);
+      });
+    }
+    if (radioLoadVolumioBtn) {
+      radioLoadVolumioBtn.addEventListener('click', loadVolumioMyWebRadios);
+    }
+    if (radioHelpToggle && radioHelpBox) {
+      radioHelpToggle.addEventListener('click', function () {
+        radioHelpBox.classList.toggle('hidden');
+      });
+    }
+    if (radioHelpClose && radioHelpBox) {
+      radioHelpClose.addEventListener('click', function () {
+        radioHelpBox.classList.add('hidden');
+      });
+    }
+    if (radioModalCloseBtn) {
+      radioModalCloseBtn.addEventListener('click', closeRadioModal);
+    }
+    if (radioModalSlot) {
+      radioModalSlot.addEventListener('change', function () {
+        const slotIdx = parseInt(radioModalSlot.value, 10);
+        if (slotIdx >= 0 && radioStations[slotIdx]) {
+          radioModalName.value = radioStations[slotIdx].name;
+          radioModalUrl.value = radioStations[slotIdx].url;
+        } else {
+          radioModalName.value = '';
+          radioModalUrl.value = '';
+        }
+      });
+    }
+    if (radioModalTestBtn) {
+      radioModalTestBtn.addEventListener('click', function () {
+        const testName = (radioModalName && radioModalName.value.trim()) || 'Test Stream';
+        const testUrl = (radioModalUrl && radioModalUrl.value.trim()) || '';
+        if (!testUrl) {
+          showToast('Please enter a stream URL to test');
+          return;
+        }
+        showToast('Testing stream: ' + testName);
+        playRadioStation({ name: testName, uri: testUrl });
+      });
+    }
+    if (radioModalSaveBtn) {
+      radioModalSaveBtn.addEventListener('click', function () {
+        const nameVal = (radioModalName && radioModalName.value.trim()) || '';
+        const urlVal = (radioModalUrl && radioModalUrl.value.trim()) || '';
+        if (!nameVal || !urlVal) {
+          showToast('Please enter both Station Name and Stream URL');
+          return;
+        }
+        const slotIdx = parseInt(radioModalSlot && radioModalSlot.value, 10);
+        const updated = radioStations.slice();
+        if (!isNaN(slotIdx) && slotIdx >= 0) {
+          updated[slotIdx] = {
+            id: slotIdx + 1,
+            name: nameVal,
+            url: urlVal,
+            uri: urlVal
+          };
+        } else {
+          updated.push({
+            id: updated.length + 1,
+            name: nameVal,
+            url: urlVal,
+            uri: urlVal
+          });
+        }
+        closeRadioModal();
+        savePluginConfig({ radioStations: updated }, 'Saved radio station: ' + nameVal);
+      });
+    }
+
+    // Podcasts View Actions & Modal
+    if (podcastAddBtn) {
+      podcastAddBtn.addEventListener('click', openPodcastModal);
+    }
+    if (podcastRefreshBtn) {
+      podcastRefreshBtn.addEventListener('click', renderPodcastsHome);
+    }
+    if (podcastBackBtn) {
+      podcastBackBtn.addEventListener('click', renderPodcastsHome);
+    }
+    if (podcastHelpToggle && podcastHelpBox) {
+      podcastHelpToggle.addEventListener('click', function () {
+        podcastHelpBox.classList.toggle('hidden');
+      });
+    }
+    if (podcastHelpClose && podcastHelpBox) {
+      podcastHelpClose.addEventListener('click', function () {
+        podcastHelpBox.classList.add('hidden');
+      });
+    }
+    if (podcastModalCloseBtn) {
+      podcastModalCloseBtn.addEventListener('click', closePodcastModal);
+    }
+    samplePillBtns.forEach(function (pill) {
+      pill.addEventListener('click', function () {
+        if (podcastModalName) podcastModalName.value = pill.getAttribute('data-name') || '';
+        if (podcastModalUrl) podcastModalUrl.value = pill.getAttribute('data-rss') || '';
+      });
+    });
+    if (podcastModalSaveBtn) {
+      podcastModalSaveBtn.addEventListener('click', function () {
+        const feedName = (podcastModalName && podcastModalName.value.trim()) || 'Podcast Show';
+        const feedUrl = (podcastModalUrl && podcastModalUrl.value.trim()) || '';
+        if (!feedUrl) {
+          showToast('Please enter a valid Podcast RSS Feed URL');
+          return;
+        }
+        const updatedFeeds = podcastFeeds.slice();
+        updatedFeeds.push({ name: feedName, rssUrl: feedUrl });
+        closePodcastModal();
+        savePluginConfig({ podcastFeeds: updatedFeeds }, 'Added podcast: ' + feedName).then(function () {
+          loadPodcastRssEpisodes({ name: feedName, rssUrl: feedUrl });
+        });
+      });
+    }
+
+    // Settings View Actions
+    if (timeoutDecBtn && settingIdleTimeout) {
+      timeoutDecBtn.addEventListener('click', function () {
+        const current = parseInt(settingIdleTimeout.value, 10) || 60;
+        settingIdleTimeout.value = String(Math.max(10, current - 10));
+      });
+    }
+    if (timeoutIncBtn && settingIdleTimeout) {
+      timeoutIncBtn.addEventListener('click', function () {
+        const current = parseInt(settingIdleTimeout.value, 10) || 60;
+        settingIdleTimeout.value = String(current + 10);
+      });
+    }
+    if (saveSettingsBtn) {
+      saveSettingsBtn.addEventListener('click', handleSaveSettingsFromView);
+    }
+
+    // Spotify View -> Open Now Playing
+    if (spotifyOpenNpBtn) {
+      spotifyOpenNpBtn.addEventListener('click', function () {
+        navigateToView('nowplaying');
+      });
+    }
+
+    // CD View Buttons
+    if (cdRefreshBtn) {
+      cdRefreshBtn.addEventListener('click', requestCdLibrary);
+    }
+    if (cdPlayAllBtn) {
+      cdPlayAllBtn.addEventListener('click', function () {
+        if (cdTracksCache.length > 0) {
+          const first = cdTracksCache[0];
+          stopAndReplacePlay({
+            service: first.service || 'cd',
+            type: first.type || 'song',
+            title: first.title || 'Track 1',
+            uri: first.uri
+          });
+        } else {
+          stopAndReplacePlay({ service: 'cd', type: 'folder', uri: 'cd' });
+        }
+      });
+    }
+    if (cdEjectBtn) {
+      cdEjectBtn.addEventListener('click', function () {
+        if (!socket || !socket.connected) {
+          return;
+        }
+        socket.emit('stop');
+        socket.emit('callMethod', {
+          endpoint: 'music_service/cd',
+          method: 'eject',
+          data: ''
+        });
+        socket.emit('callMethod', {
+          endpoint: 'music_service/nanosound_cd',
+          method: 'eject',
+          data: ''
+        });
+        showToast('Eject command sent');
+      });
+    }
+
+    // Bottom Bar -> Expand Fullscreen Now Playing
+    if (bottomTrackTrigger) {
+      bottomTrackTrigger.addEventListener('click', function () {
+        if (currentView === 'nowplaying') {
+          navigateToView('home');
+        } else {
+          navigateToView('nowplaying');
+        }
+      });
+    }
+
+    // Transport Controls
+    if (btnPlayPause) btnPlayPause.addEventListener('click', togglePlayPause);
+    if (npPlayBtn) npPlayBtn.addEventListener('click', togglePlayPause);
+
+    if (btnPrev) btnPrev.addEventListener('click', function () { sendTransportCommand('prev'); });
+    if (npPrevBtn) npPrevBtn.addEventListener('click', function () { sendTransportCommand('prev'); });
+
+    if (btnNext) btnNext.addEventListener('click', function () { sendTransportCommand('next'); });
+    if (npNextBtn) npNextBtn.addEventListener('click', function () { sendTransportCommand('next'); });
+
+    if (btnStop) btnStop.addEventListener('click', function () { sendTransportCommand('stop'); });
+    if (npStopBtn) npStopBtn.addEventListener('click', function () { sendTransportCommand('stop'); });
+
+    if (npSeekSlider) {
+      npSeekSlider.addEventListener('change', function () {
+        if (socket && socket.connected) {
+          socket.emit('seek', Number(npSeekSlider.value) || 0);
+        }
+      });
+    }
+
+    // Volume Controls
+    if (btnMute) btnMute.addEventListener('click', toggleMute);
+    if (btnVolDown) btnVolDown.addEventListener('click', function () { stepVolume(-5); });
+    if (btnVolUp) btnVolUp.addEventListener('click', function () { stepVolume(5); });
+
+    if (volumeSlider) {
+      volumeSlider.addEventListener('pointerdown', function () {
+        isDraggingVolume = true;
+      });
+      volumeSlider.addEventListener('pointerup', function () {
+        isDraggingVolume = false;
+      });
+      volumeSlider.addEventListener('input', function () {
+        emitVolumeDebounced(volumeSlider.value);
+      });
+    }
+  }
+
+  // ==========================================================================
+  // Dynamic Volumio Socket.IO Connection
   // ==========================================================================
 
   function loadSocketIoScript(onLoaded, onError) {
@@ -241,18 +1822,17 @@
       if (typeof window.io === 'function') {
         onLoaded();
       } else {
-        onError(new Error('Socket.IO loaded but window.io is undefined'));
+        onError(new Error('window.io undefined'));
       }
     };
     script.onerror = function () {
       onError(new Error('Failed to load ' + SOCKET_IO_SCRIPT_URL));
     };
-
     document.head.appendChild(script);
   }
 
   function initVolumioSocket() {
-    setConnectionUI(false, 'Connecting to ' + VOLUMIO_HOST + ':3000...');
+    setConnectionUI(false, 'Connecting...');
 
     loadSocketIoScript(
       function () {
@@ -264,51 +1844,35 @@
           });
 
           socket.on('connect', function () {
-            setConnectionUI(true, 'Volumio Connected');
+            setConnectionUI(true, 'Online');
             socket.emit('getState', '');
           });
 
           socket.on('disconnect', function () {
-            setConnectionUI(false, 'Volumio Disconnected');
+            setConnectionUI(false, 'Offline');
           });
 
           socket.on('connect_error', function () {
-            setConnectionUI(false, 'Volumio Offline (' + VOLUMIO_HOST + ':3000)');
+            setConnectionUI(false, 'Offline');
           });
 
           socket.on('pushState', function (state) {
             handlePushState(state);
           });
+
+          socket.on('pushBrowseLibrary', function (data) {
+            handlePushBrowseLibrary(data);
+          });
         } catch (err) {
-          console.error('CoreZoneDisplay Socket.IO error:', err);
-          setConnectionUI(false, 'Socket Error');
+          console.error('CoreZoneDisplay Socket.IO init error:', err);
+          setConnectionUI(false, 'Error');
         }
       },
       function (err) {
-        console.warn('CoreZoneDisplay: Could not load Volumio socket.io.js:', err.message);
-        setConnectionUI(false, 'Volumio Unreachable (' + VOLUMIO_HOST + ':3000)');
+        console.warn('CoreZoneDisplay: Volumio socket.io.js unreachable:', err.message);
+        setConnectionUI(false, 'Offline');
       }
     );
-  }
-
-  // ==========================================================================
-  // Source Tile Placeholder Feedback
-  // ==========================================================================
-
-  function bindSourceTileButtons() {
-    sourceTiles.forEach(function (tile) {
-      tile.addEventListener('click', function () {
-        const sourceName = tile.getAttribute('data-source') || 'source';
-        tile.classList.add('active-feedback');
-        setTimeout(function () {
-          tile.classList.remove('active-feedback');
-        }, 180);
-
-        if (mainTrackArtist && (!socket || !socket.connected)) {
-          mainTrackArtist.textContent = 'Selected source: ' + sourceName.toUpperCase() + ' (Placeholder)';
-        }
-      });
-    });
   }
 
   // ==========================================================================
@@ -319,9 +1883,9 @@
     updateClocks();
     setInterval(updateClocks, 1000);
 
-    bindUserActivityListeners();
-    bindSourceTileButtons();
-    resetIdleTimer();
+    renderRadioPresets();
+    bindEventListeners();
+    fetchPluginConfig();
     initVolumioSocket();
   }
 

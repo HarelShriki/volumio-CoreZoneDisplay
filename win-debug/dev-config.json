@@ -1,0 +1,38 @@
+{
+  "screensaverEnabled": true,
+  "idleTimeoutSec": 30,
+  "selectedClock": "MainClockSelector.html",
+  "radioStations": [
+    {
+      "id": 1,
+      "name": "Kan 88",
+      "url": "https://27783.live.streamtheworld.com/KAN_88.mp3",
+      "uri": "https://27783.live.streamtheworld.com/KAN_88.mp3"
+    },
+    {
+      "id": 2,
+      "name": "Galgalatz",
+      "url": "https://glzwizzlv.bynetcdn.com/glglz_mp3",
+      "uri": "https://glzwizzlv.bynetcdn.com/glglz_mp3"
+    },
+    {
+      "id": 3,
+      "name": "Eco 99 FM",
+      "url": "https://eco01.mediacast.co.il/ecolive/99fm_aac/icecast.audio",
+      "uri": "https://eco01.mediacast.co.il/ecolive/99fm_aac/icecast.audio"
+    },
+    {
+      "id": 4,
+      "name": "Radio Paradise",
+      "url": "http://stream.radioparadise.com/aac-320",
+      "uri": "http://stream.radioparadise.com/aac-320"
+    },
+    {
+      "id": 5,
+      "name": "SomaFM Groove Salad",
+      "url": "https://ice1.somafm.com/groovesalad-256-mp3",
+      "uri": "https://ice1.somafm.com/groovesalad-256-mp3"
+    }
+  ],
+  "podcastFeeds": []
+}

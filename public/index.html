@@ -8,99 +8,642 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <!-- Main Dashboard UI Layer -->
-  <main id="main-ui" class="main-ui" aria-label="CoreZoneDisplay Main Interface">
-    <!-- Top Status Header -->
+  <!-- Main Application Shell (Fixed Top Bar + Scrollable View Container + Fixed Bottom Bar) -->
+  <div id="main-ui" class="app-shell" aria-label="CoreZoneDisplay Controller">
+
+    <!-- A. Fixed Top Bar -->
     <header class="top-bar">
-      <div class="brand">
-        <span class="brand-dot" id="connection-indicator" aria-hidden="true"></span>
-        <h1 class="brand-title">CoreZoneDisplay</h1>
+      <div class="top-bar-left">
+        <button type="button" id="home-btn" class="icon-pill-btn hidden" aria-label="Return to Home">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M15 18l-6-6 6-6"></path>
+          </svg>
+          <span>Home</span>
+        </button>
+        <h1 id="view-title" class="view-title">CoreZoneDisplay</h1>
       </div>
 
-      <div class="status-group">
-        <span id="connection-status" class="status-pill status-disconnected">Connecting to Volumio...</span>
-        <span id="header-clock" class="header-clock">--:--</span>
+      <div class="top-bar-center">
+        <time id="header-clock" class="header-clock">--:--</time>
+      </div>
+
+      <div class="top-bar-right">
+        <div class="connection-badge" id="connection-badge" title="Volumio Connection Status">
+          <span id="connection-indicator" class="connection-dot" aria-hidden="true"></span>
+          <span id="connection-status" class="connection-text">Connecting...</span>
+        </div>
+
+        <button type="button" id="settings-btn" class="icon-pill-btn" title="Open Settings" aria-label="Open Settings">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+          <span>Settings</span>
+        </button>
+
+        <button type="button" id="show-clock-btn" class="icon-pill-btn sleep-btn" title="Screensaver / Clock">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+          <span>Screensaver / Clock</span>
+        </button>
       </div>
     </header>
 
-    <!-- Current Playback Summary Bar -->
-    <section class="now-playing-card" aria-label="Playback Status">
-      <div class="now-playing-meta">
-        <div class="playback-badge-row">
-          <span id="playback-state-badge" class="playback-badge">IDLE</span>
-          <span id="playback-service" class="playback-service">Volumio</span>
-        </div>
-        <h2 id="main-track-title" class="track-title">Ready to Play</h2>
-        <p id="main-track-artist" class="track-artist">Select a source below or stream via Spotify Connect</p>
-      </div>
-    </section>
+    <!-- Scrollable Middle View Router Container -->
+    <main id="view-container" class="view-container">
 
-    <!-- Automotive / CarPlay-inspired Source Grid (Placeholder MVP) -->
-    <section class="sources-section" aria-label="Audio Sources">
-      <div class="source-grid">
-        <button type="button" class="source-tile" data-source="spotify">
-          <span class="source-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <!-- B. Home View (CarPlay-Style 2x2 Source Grid) -->
+      <section id="view-home" class="view-panel view-panel-fit active" aria-label="Audio Sources">
+        <div class="source-grid">
+          <!-- 1. Radio -->
+          <button type="button" class="source-tile" data-source="radio">
+            <div class="source-tile-top">
+              <span class="source-icon source-icon-radio" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="2" y="7" width="20" height="14" rx="2.5"></rect>
+                  <path d="M6 7l11-4"></path>
+                  <circle cx="16.5" cy="14" r="2.5"></circle>
+                  <path d="M6 12h4"></path>
+                  <path d="M6 16h4"></path>
+                </svg>
+              </span>
+              <span class="source-tag" id="tile-badge-radio">5 Presets</span>
+            </div>
+            <div class="source-tile-bottom">
+              <span class="source-label">Radio</span>
+              <span class="source-sublabel">Live Broadcast Stations</span>
+            </div>
+          </button>
+
+          <!-- 2. Spotify -->
+          <button type="button" class="source-tile" data-source="spotify">
+            <div class="source-tile-top">
+              <span class="source-icon source-icon-spotify" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <path d="M8 14.5c2.5-1 5.5-1 8 0"></path>
+                  <path d="M7 11.5c3.5-1.2 6.5-1.2 10 0"></path>
+                  <path d="M6.5 8.5c4-1.4 7.5-1.4 11 0"></path>
+                </svg>
+              </span>
+              <span class="source-tag" id="tile-badge-spotify">Connect</span>
+            </div>
+            <div class="source-tile-bottom">
+              <span class="source-label">Spotify</span>
+              <span class="source-sublabel">Spotify Connect Stream</span>
+            </div>
+          </button>
+
+          <!-- 3. CD Player -->
+          <button type="button" class="source-tile" data-source="cd">
+            <div class="source-tile-top">
+              <span class="source-icon source-icon-cd" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <circle cx="12" cy="12" r="3"></circle>
+                  <path d="M14.5 9.5L19 5"></path>
+                </svg>
+              </span>
+              <span class="source-tag" id="tile-badge-cd">Optical</span>
+            </div>
+            <div class="source-tile-bottom">
+              <span class="source-label">CD</span>
+              <span class="source-sublabel">NanoSound / Disc Player</span>
+            </div>
+          </button>
+
+          <!-- 4. Podcasts -->
+          <button type="button" class="source-tile" data-source="podcasts">
+            <div class="source-tile-top">
+              <span class="source-icon source-icon-podcasts" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                  <line x1="12" y1="19" x2="12" y2="23"></line>
+                  <line x1="8" y1="23" x2="16" y2="23"></line>
+                </svg>
+              </span>
+              <span class="source-tag" id="tile-badge-podcasts">RSS &amp; Library</span>
+            </div>
+            <div class="source-tile-bottom">
+              <span class="source-label">Podcasts</span>
+              <span class="source-sublabel">Shows &amp; Episodes</span>
+            </div>
+          </button>
+        </div>
+      </section>
+
+      <!-- C. Radio Stations View (Easy Playback & Adding Flow) -->
+      <section id="view-radio" class="view-panel" aria-label="Favorite Radio Stations">
+        <div class="subview-toolbar">
+          <span class="subview-status">Tap any preset to play immediately</span>
+          <div class="subview-actions">
+            <button type="button" id="radio-add-btn" class="toolbar-btn toolbar-btn-primary">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+              <span>+ Add / Edit Stations</span>
+            </button>
+            <button type="button" id="radio-load-volumio-btn" class="toolbar-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              <span>Load from Volumio My Web Radios</span>
+            </button>
+            <button type="button" id="radio-help-toggle" class="toolbar-btn">
+              <span>? How to Add</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Collapsible Built-in Help Tip -->
+        <div id="radio-help-box" class="help-info-card hidden">
+          <div class="help-info-header">
+            <strong>How to play &amp; add radio stations</strong>
+            <button type="button" id="radio-help-close" class="help-close-btn">Close</button>
+          </div>
+          <ol class="help-info-list">
+            <li><strong>Direct Stream URL:</strong> Tap <strong>+ Add / Edit Stations</strong> above (or open <strong>Settings</strong>) to paste any direct audio stream URL (<code>.mp3</code>, <code>.aac</code>, <code>.m3u8</code>, or Icecast link) and test-play it immediately.</li>
+            <li><strong>Import from Volumio:</strong> Tap <strong>Load from Volumio My Web Radios</strong> to fetch stations from Volumio's built-in <em>My Web Radios</em> library (<code>radio/myWebRadio</code>) for 1-tap playback or saving into a preset slot.</li>
+          </ol>
+        </div>
+
+        <!-- Saved Radio Presets Grid -->
+        <div id="radio-presets-grid" class="radio-presets-grid">
+          <!-- Populated dynamically from /api/config -->
+        </div>
+
+        <!-- Imported Volumio My Web Radios Section -->
+        <div id="volumio-radios-section" class="discovered-section hidden">
+          <h3 class="discovered-heading">Volumio My Web Radios</h3>
+          <div id="volumio-radios-list" class="media-list"></div>
+        </div>
+      </section>
+
+      <!-- Spotify View -->
+      <section id="view-spotify" class="view-panel view-panel-fit" aria-label="Spotify Connect">
+        <div class="spotify-card">
+          <div class="spotify-emblem" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="10"></circle>
               <path d="M8 14.5c2.5-1 5.5-1 8 0"></path>
               <path d="M7 11.5c3.5-1.2 6.5-1.2 10 0"></path>
               <path d="M6.5 8.5c4-1.4 7.5-1.4 11 0"></path>
             </svg>
-          </span>
-          <span class="source-label">Spotify</span>
-          <span class="source-sublabel">Connect &amp; Playlists</span>
-        </button>
+          </div>
+          <h2 id="spotify-view-heading" class="spotify-heading">Ready for Spotify Connect</h2>
+          <p id="spotify-view-subtext" class="spotify-subtext">
+            Select this Volumio device from your Spotify app on your phone, tablet, or computer.
+          </p>
+          <div class="spotify-actions">
+            <button type="button" id="spotify-open-np-btn" class="action-btn action-btn-spotify">
+              <span>Open Now Playing</span>
+            </button>
+          </div>
+        </div>
+      </section>
 
-        <button type="button" class="source-tile" data-source="radio">
-          <span class="source-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="2" y="7" width="20" height="14" rx="2"></rect>
-              <path d="M6 7l10-4"></path>
-              <circle cx="16.5" cy="14" r="2.5"></circle>
-              <path d="M6 12h4"></path>
-              <path d="M6 16h4"></path>
-            </svg>
-          </span>
-          <span class="source-label">Radio</span>
-          <span class="source-sublabel">Live Web Stations</span>
-        </button>
+      <!-- CD Player View (Scrollable Track List) -->
+      <section id="view-cd" class="view-panel" aria-label="CD Player">
+        <div class="subview-toolbar">
+          <span id="cd-status-label" class="subview-status">Optical Disc Tracks</span>
+          <div class="subview-actions">
+            <button type="button" id="cd-play-all-btn" class="toolbar-btn toolbar-btn-primary">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <polygon points="6 4 20 12 6 20 6 4"></polygon>
+              </svg>
+              <span>Play Disc</span>
+            </button>
+            <button type="button" id="cd-refresh-btn" class="toolbar-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="23 4 23 10 17 10"></polyline>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+              </svg>
+              <span>Reload</span>
+            </button>
+            <button type="button" id="cd-eject-btn" class="toolbar-btn toolbar-btn-danger">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polygon points="12 6 5 15 19 15 12 6"></polygon>
+                <line x1="5" y1="19" x2="19" y2="19"></line>
+              </svg>
+              <span>Eject</span>
+            </button>
+          </div>
+        </div>
+        <div id="cd-track-list" class="media-list">
+          <!-- Populated dynamically via Volumio browseLibrary -->
+        </div>
+      </section>
 
-        <button type="button" class="source-tile" data-source="cd">
-          <span class="source-icon" aria-hidden="true">
+      <!-- Podcasts View (RSS Feeds + Volumio Podcast Library) -->
+      <section id="view-podcasts" class="view-panel" aria-label="Podcasts">
+        <div class="subview-toolbar">
+          <div class="subview-breadcrumb">
+            <button type="button" id="podcast-back-btn" class="toolbar-btn hidden">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M15 18l-6-6 6-6"></path>
+              </svg>
+              <span>Back to Shows</span>
+            </button>
+            <span id="podcast-status-label" class="subview-status">Podcast Shows &amp; RSS Feeds</span>
+          </div>
+          <div class="subview-actions">
+            <button type="button" id="podcast-add-btn" class="toolbar-btn toolbar-btn-primary">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+              <span>+ Add Podcast (RSS URL)</span>
+            </button>
+            <button type="button" id="podcast-refresh-btn" class="toolbar-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="23 4 23 10 17 10"></polyline>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+              </svg>
+              <span>Refresh</span>
+            </button>
+            <button type="button" id="podcast-help-toggle" class="toolbar-btn">
+              <span>? How to Add</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Collapsible Built-in Podcast Help Tip -->
+        <div id="podcast-help-box" class="help-info-card hidden">
+          <div class="help-info-header">
+            <strong>How to play &amp; add Podcasts</strong>
+            <button type="button" id="podcast-help-close" class="help-close-btn">Close</button>
+          </div>
+          <ol class="help-info-list">
+            <li><strong>Option 1 (Direct RSS Feed):</strong> Tap <strong>+ Add Podcast (RSS URL)</strong> above and paste any standard Podcast RSS link. CoreZoneDisplay fetches the latest 10 episodes for instant 1-tap playback.</li>
+            <li><strong>Option 2 (Volumio Plugin / Spotify Connect):</strong> Install the Podcasts plugin inside Volumio to browse shows automatically, or stream podcasts directly from your phone via <strong>Spotify Connect</strong>.</li>
+          </ol>
+        </div>
+
+        <div id="podcast-list" class="media-list">
+          <!-- Populated dynamically with saved RSS feeds + Volumio browseLibrary -->
+        </div>
+      </section>
+
+      <!-- D. In-App Settings View (Scrollable & Synchronized with Volumio v-conf) -->
+      <section id="view-settings" class="view-panel" aria-label="Settings">
+        <div class="settings-container">
+          <!-- Section 1: Screensaver & Display Settings -->
+          <div class="settings-card">
+            <div class="settings-card-header">
+              <div>
+                <h2 class="settings-card-title">Display &amp; Clock Screensaver</h2>
+                <p class="settings-card-desc">Synced with Volumio Settings and <code>submodule/clocks/MainClockSelector.html</code></p>
+              </div>
+              <button type="button" id="setting-test-screensaver-btn" class="toolbar-btn toolbar-btn-primary">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
+                <span>Launch Screensaver Now</span>
+              </button>
+            </div>
+
+            <div class="settings-row">
+              <div class="settings-label-group">
+                <label for="setting-screensaver-enabled" class="settings-label">Enable Screensaver</label>
+                <span class="settings-hint">Automatically show the clock overlay after inactivity</span>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="setting-screensaver-enabled" checked />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+
+            <div class="settings-row">
+              <div class="settings-label-group">
+                <label for="setting-idle-timeout" class="settings-label">Idle Timeout (seconds)</label>
+                <span class="settings-hint">Time before clock activates (e.g. 60s = 1 min, 300s = 5 min)</span>
+              </div>
+              <div class="stepper-control">
+                <button type="button" id="timeout-dec-btn" class="stepper-btn" aria-label="Decrease timeout by 10 seconds">−10s</button>
+                <input type="number" id="setting-idle-timeout" class="settings-input settings-input-num" min="5" max="7200" value="60" />
+                <button type="button" id="timeout-inc-btn" class="stepper-btn" aria-label="Increase timeout by 10 seconds">+10s</button>
+              </div>
+            </div>
+
+            <div class="settings-row">
+              <div class="settings-label-group">
+                <label for="setting-selected-clock" class="settings-label">Active Clock File</label>
+                <span class="settings-hint">HTML clock inside <code>submodule/clocks</code></span>
+              </div>
+              <select id="setting-selected-clock" class="settings-select">
+                <option value="MainClockSelector.html">MainClockSelector.html</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Section 2: 5 Favorite Radio Presets -->
+          <div class="settings-card">
+            <div class="settings-card-header">
+              <div>
+                <h2 class="settings-card-title">Favorite Radio Stations (5 Presets)</h2>
+                <p class="settings-card-desc">Edit station names and direct audio stream URLs (MP3, AAC, HLS, Icecast)</p>
+              </div>
+            </div>
+
+            <div id="setting-radio-list" class="settings-radio-list">
+              <!-- Populated dynamically for Presets 1 to 5 -->
+            </div>
+          </div>
+
+          <div class="settings-footer">
+            <button type="button" id="save-settings-btn" class="save-settings-btn">
+              <span>Save All Settings</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- E2. Expandable Fullscreen Now Playing View -->
+      <section id="view-nowplaying" class="view-panel view-panel-fit" aria-label="Now Playing">
+        <div class="np-layout">
+          <div class="np-artwork-wrap">
+            <img
+              id="np-album-art"
+              class="np-album-art hidden"
+              src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+              alt="Album Art"
+            />
+            <div id="np-art-fallback" class="np-art-fallback" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <circle cx="12" cy="12" r="3"></circle>
+              </svg>
+            </div>
+          </div>
+
+          <div class="np-details">
+            <div class="np-badges">
+              <span id="np-source-badge" class="np-source-badge">VOLUMIO</span>
+              <span id="np-status-badge" class="np-status-badge">STOP</span>
+            </div>
+
+            <h2 id="np-title" class="np-title">No Active Track</h2>
+            <p id="np-artist" class="np-artist">Choose a source from the Home screen</p>
+            <p id="np-album" class="np-album"></p>
+
+            <!-- Seek / Progress Bar (Hidden automatically for Live Webradio) -->
+            <div id="np-progress-container" class="np-progress-container hidden">
+              <input
+                type="range"
+                id="np-seek-slider"
+                class="np-seek-slider"
+                min="0"
+                max="100"
+                value="0"
+                aria-label="Track Seek Position"
+              />
+              <div class="np-time-row">
+                <span id="np-time-current">0:00</span>
+                <span id="np-time-total">0:00</span>
+              </div>
+            </div>
+
+            <!-- Fullscreen Transport Controls -->
+            <div class="np-transport">
+              <button type="button" id="np-prev-btn" class="transport-btn" aria-label="Previous Track">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <polygon points="19 20 9 12 19 4 19 20"></polygon>
+                  <rect x="5" y="4" width="2.5" height="16" rx="1"></rect>
+                </svg>
+              </button>
+
+              <button type="button" id="np-play-btn" class="transport-btn transport-btn-primary" aria-label="Play or Pause">
+                <svg id="np-icon-play" viewBox="0 0 24 24" fill="currentColor">
+                  <polygon points="6 4 20 12 6 20 6 4"></polygon>
+                </svg>
+                <svg id="np-icon-pause" class="hidden" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="6" y="4" width="4" height="16" rx="1"></rect>
+                  <rect x="14" y="4" width="4" height="16" rx="1"></rect>
+                </svg>
+              </button>
+
+              <button type="button" id="np-next-btn" class="transport-btn" aria-label="Next Track">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <polygon points="5 4 15 12 5 20 5 4"></polygon>
+                  <rect x="16.5" y="4" width="2.5" height="16" rx="1"></rect>
+                </svg>
+              </button>
+
+              <button type="button" id="np-stop-btn" class="transport-btn" aria-label="Stop Playback">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="6" y="6" width="12" height="12" rx="2"></rect>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- E1. Fixed Bottom Player & Volume Bar -->
+    <footer id="bottom-player-bar" class="bottom-bar" aria-label="Player and Volume Controls">
+      <!-- Left: Album Art + Track Info (Tap to expand Now Playing) -->
+      <button type="button" id="bottom-track-trigger" class="bottom-track-info" title="Open Fullscreen Now Playing">
+        <div class="bottom-art-box">
+          <img
+            id="bottom-album-art"
+            class="bottom-album-art hidden"
+            src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+            alt=""
+          />
+          <div id="bottom-art-fallback" class="bottom-art-fallback" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="10"></circle>
               <circle cx="12" cy="12" r="3"></circle>
-              <path d="M14.5 9.5L19 5"></path>
             </svg>
-          </span>
-          <span class="source-label">CD</span>
-          <span class="source-sublabel">Optical Disc Player</span>
+          </div>
+        </div>
+        <div class="bottom-meta">
+          <span id="bottom-track-title" class="bottom-title">Ready to Play</span>
+          <span id="bottom-track-artist" class="bottom-artist">Select a source above</span>
+        </div>
+      </button>
+
+      <!-- Center: Transport Controls -->
+      <div class="bottom-transport">
+        <button type="button" id="btn-prev" class="bar-transport-btn" aria-label="Previous">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="19 20 9 12 19 4 19 20"></polygon>
+            <rect x="5" y="4" width="2.5" height="16" rx="1"></rect>
+          </svg>
         </button>
 
-        <button type="button" class="source-tile" data-source="podcasts">
-          <span class="source-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-              <line x1="12" y1="19" x2="12" y2="23"></line>
-              <line x1="8" y1="23" x2="16" y2="23"></line>
-            </svg>
-          </span>
-          <span class="source-label">Podcasts</span>
-          <span class="source-sublabel">Shows &amp; Episodes</span>
+        <button type="button" id="btn-play-pause" class="bar-transport-btn bar-transport-play" aria-label="Play or Pause">
+          <svg id="bar-icon-play" viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="6 4 20 12 6 20 6 4"></polygon>
+          </svg>
+          <svg id="bar-icon-pause" class="hidden" viewBox="0 0 24 24" fill="currentColor">
+            <rect x="6" y="4" width="4" height="16" rx="1"></rect>
+            <rect x="14" y="4" width="4" height="16" rx="1"></rect>
+          </svg>
+        </button>
+
+        <button type="button" id="btn-next" class="bar-transport-btn" aria-label="Next">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <polygon points="5 4 15 12 5 20 5 4"></polygon>
+            <rect x="16.5" y="4" width="2.5" height="16" rx="1"></rect>
+          </svg>
+        </button>
+
+        <button type="button" id="btn-stop" class="bar-transport-btn" aria-label="Stop">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <rect x="6" y="6" width="12" height="12" rx="2"></rect>
+          </svg>
         </button>
       </div>
-    </section>
-  </main>
 
-  <!-- Full-Viewport Idle / Screensaver Overlay -->
+      <!-- Right: Volume Controls -->
+      <div class="bottom-volume">
+        <button type="button" id="btn-mute" class="vol-btn" aria-label="Mute or Unmute">
+          <svg id="icon-vol-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+          </svg>
+          <svg id="icon-vol-muted" class="hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+            <line x1="23" y1="9" x2="17" y2="15"></line>
+            <line x1="17" y1="9" x2="23" y2="15"></line>
+          </svg>
+        </button>
+
+        <button type="button" id="btn-vol-down" class="vol-btn" aria-label="Volume Down">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+        </button>
+
+        <div class="vol-slider-wrap">
+          <input
+            type="range"
+            id="volume-slider"
+            class="volume-slider"
+            min="0"
+            max="100"
+            value="50"
+            aria-label="Volume Level"
+          />
+          <span id="volume-value" class="volume-value">50%</span>
+        </div>
+
+        <button type="button" id="btn-vol-up" class="vol-btn" aria-label="Volume Up">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+        </button>
+      </div>
+    </footer>
+
+  </div>
+
+  <!-- Quick-Add / Edit Radio Station Modal -->
+  <div id="radio-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="radio-modal-title">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="radio-modal-title" class="modal-title">Add / Edit Radio Station</h2>
+        <button type="button" id="radio-modal-close-btn" class="help-close-btn">Close</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-field">
+          <label for="radio-modal-slot" class="form-label">Target Preset Slot</label>
+          <select id="radio-modal-slot" class="settings-select">
+            <option value="0">Preset 1</option>
+            <option value="1">Preset 2</option>
+            <option value="2">Preset 3</option>
+            <option value="3">Preset 4</option>
+            <option value="4">Preset 5</option>
+            <option value="-1">+ Add as New Station</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label for="radio-modal-name" class="form-label">Station Name</label>
+          <input type="text" id="radio-modal-name" class="settings-input" placeholder="e.g. Kan 88, Galgalatz, BBC Radio 6" />
+        </div>
+        <div class="form-field">
+          <label for="radio-modal-url" class="form-label">Direct Stream URL (.mp3 / .aac / .m3u8)</label>
+          <input type="url" id="radio-modal-url" class="settings-input" placeholder="https://example.com/live.mp3" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" id="radio-modal-test-btn" class="toolbar-btn">
+          <span>▶ Test Play</span>
+        </button>
+        <button type="button" id="radio-modal-save-btn" class="toolbar-btn toolbar-btn-primary">
+          <span>Save Station</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Quick-Add Podcast RSS Modal -->
+  <div id="podcast-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="podcast-modal-title">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="podcast-modal-title" class="modal-title">Add Podcast (RSS Feed URL)</h2>
+        <button type="button" id="podcast-modal-close-btn" class="help-close-btn">Close</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-field">
+          <label for="podcast-modal-name" class="form-label">Podcast Name</label>
+          <input type="text" id="podcast-modal-name" class="settings-input" placeholder="e.g. Osim Historia / The Daily" />
+        </div>
+        <div class="form-field">
+          <label for="podcast-modal-url" class="form-label">RSS Feed URL</label>
+          <input type="url" id="podcast-modal-url" class="settings-input" placeholder="https://feeds.simplecast.com/54nAGcIl" />
+        </div>
+        <div class="sample-pills-row">
+          <span class="sample-pills-label">Quick sample feeds:</span>
+          <button type="button" class="sample-pill-btn" data-name="99% Invisible" data-rss="https://feeds.simplecast.com/BqbsxVfO">99% Invisible</button>
+          <button type="button" class="sample-pill-btn" data-name="The Daily" data-rss="https://feeds.simplecast.com/54nAGcIl">The Daily</button>
+          <button type="button" class="sample-pill-btn" data-name="Osim Historia (עושים היסטוריה)" data-rss="https://www.spreaker.com/show/4226052/episodes/feed">Osim Historia</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" id="podcast-modal-save-btn" class="toolbar-btn toolbar-btn-primary">
+          <span>Save &amp; Load Episodes</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- In-App Toast Banner -->
+  <div id="app-toast" class="app-toast hidden" role="status" aria-live="polite">Settings saved</div>
+
+  <!-- F. Full-Viewport Idle / Screensaver Overlay -->
   <div id="screensaver" class="screensaver hidden" aria-hidden="true">
-    <div class="screensaver-content">
-      <time id="screensaver-clock" class="screensaver-clock">00:00</time>
-      <div id="screensaver-now-playing" class="screensaver-now-playing hidden">
-        <span class="screensaver-playing-dot" aria-hidden="true"></span>
-        <span id="screensaver-track-info" class="screensaver-track-info"></span>
-      </div>
+    <iframe
+      id="clock-frame"
+      src="about:blank"
+      title="Clock Screensaver"
+      loading="eager"
+    ></iframe>
+    <div id="screensaver-fallback" class="screensaver-fallback hidden">
+      <time id="screensaver-fallback-clock" class="screensaver-fallback-clock">00:00</time>
+      <p id="screensaver-fallback-note" class="screensaver-fallback-note">Tap anywhere to wake display</p>
+    </div>
+    <!-- Transparent touch/click wake layer above iframe (disabled when customizing clock) -->
+    <div id="screensaver-wake-layer" class="screensaver-wake-layer" title="Tap anywhere to return to player"></div>
+    <!-- Subtle Corner Clock Switcher Controls -->
+    <div class="screensaver-controls">
+      <button type="button" id="screensaver-customize-btn" class="screensaver-hud-btn">
+        <span>⚙ Change Clock Face</span>
+      </button>
+      <button type="button" id="screensaver-exit-btn" class="screensaver-hud-btn screensaver-exit-btn hidden">
+        <span>✕ Back to Player</span>
+      </button>
     </div>
   </div>
 

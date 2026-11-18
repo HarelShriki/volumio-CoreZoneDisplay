@@ -4,7 +4,7 @@
   "description": "Minimal and focused Volumio display",
   "main": "index.js",
   "scripts": {
-    "start": "node -e \"const Plugin = require('./index.js'); const p = new Plugin({ coreCommand: {}, logger: console, configManager: {} }); p.onStart();\""
+    "start": "node -e \"const Plugin = require('./index.js'); const p = new Plugin({ coreCommand: {}, logger: console, configManager: {} }); p.onVolumioStart(); p.onStart();\""
   },
   "author": "CoreZoneDisplay",
   "license": "MIT",
@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "express": "^4.18.2",
-    "kew": "^0.7.0"
+    "kew": "^0.7.0",
+    "v-conf": "^1.4.0"
   }
 }

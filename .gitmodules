@@ -1,0 +1,3 @@
+[submodule "ClockWeb"]
+	path = ClockWeb
+	url = https://github.com/HarelShriki/ClockWeb.git

@@ -311,6 +311,17 @@
 
             <div class="settings-row">
               <div class="settings-label-group">
+                <label for="setting-display-mode" class="settings-label">Display Mode</label>
+                <span class="settings-hint">Run purely as a standalone Clock Screensaver or show the Full Player Menu</span>
+              </div>
+              <select id="setting-display-mode" class="settings-select">
+                <option value="screensaver_only">Screensaver Only (Clock Mode)</option>
+                <option value="full_ui">Full Menu + Screensaver</option>
+              </select>
+            </div>
+
+            <div class="settings-row">
+              <div class="settings-label-group">
                 <label for="setting-screensaver-enabled" class="settings-label">Enable Screensaver</label>
                 <span class="settings-hint">Automatically show the clock overlay after inactivity</span>
               </div>
@@ -632,15 +643,18 @@
     ></iframe>
     <div id="screensaver-fallback" class="screensaver-fallback hidden">
       <time id="screensaver-fallback-clock" class="screensaver-fallback-clock">00:00</time>
-      <p id="screensaver-fallback-note" class="screensaver-fallback-note">Tap anywhere to wake display</p>
+      <p id="screensaver-fallback-note" class="screensaver-fallback-note">Clock Mode Active</p>
     </div>
-    <!-- Transparent touch/click wake layer above iframe (disabled when customizing clock) -->
-    <div id="screensaver-wake-layer" class="screensaver-wake-layer" title="Tap anywhere to return to player"></div>
-    <!-- Subtle Corner Clock Switcher Controls -->
-    <div class="screensaver-controls">
+    <!-- Transparent touch/click capture layer above iframe (disabled when choosing a clock face) -->
+    <div id="screensaver-wake-layer" class="screensaver-wake-layer"></div>
+    <!-- Auto-Hiding Minimal Floating Toolbar (5-second fade out in Screensaver Only mode) -->
+    <div id="screensaver-toolbar" class="screensaver-controls toolbar-hidden">
       <button type="button" id="screensaver-customize-btn" class="screensaver-hud-btn">
-        <span>⚙ Change Clock Face</span>
+        <span>⚙ Change Clock</span>
       </button>
+      <a id="screensaver-volumio-link" href="http://localhost:3000" class="screensaver-hud-btn">
+        <span>Volumio</span>
+      </a>
       <button type="button" id="screensaver-exit-btn" class="screensaver-hud-btn screensaver-exit-btn hidden">
         <span>✕ Back to Player</span>
       </button>

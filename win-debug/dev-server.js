@@ -46,6 +46,7 @@ const MIME_TYPES = {
 };
 
 const DEFAULT_DEV_CONFIG = {
+  displayMode: 'screensaver_only',
   screensaverEnabled: true,
   idleTimeoutSec: 30,
   selectedClock: 'MainClockSelector.html',
@@ -138,7 +139,13 @@ function loadDevConfig() {
         })
       : DEFAULT_DEV_CONFIG.radioStations;
 
+    const displayMode =
+      parsed.displayMode === 'full_ui' || parsed.displayMode === 'screensaver_only'
+        ? parsed.displayMode
+        : 'screensaver_only';
+
     return {
+      displayMode: displayMode,
       screensaverEnabled:
         parsed.screensaverEnabled !== undefined ? Boolean(parsed.screensaverEnabled) : true,
       idleTimeoutSec: Number(parsed.idleTimeoutSec) > 0 ? Number(parsed.idleTimeoutSec) : 30,
@@ -161,6 +168,12 @@ function loadDevConfig() {
 function saveDevConfig(updates) {
   const current = loadDevConfig();
 
+  if (updates.displayMode !== undefined) {
+    current.displayMode =
+      updates.displayMode === 'full_ui' || updates.displayMode === 'screensaver_only'
+        ? updates.displayMode
+        : 'screensaver_only';
+  }
   if (updates.screensaverEnabled !== undefined) {
     current.screensaverEnabled = Boolean(updates.screensaverEnabled);
   }
@@ -199,6 +212,7 @@ function saveDevConfig(updates) {
   }
 
   const toPersist = {
+    displayMode: current.displayMode,
     screensaverEnabled: current.screensaverEnabled,
     idleTimeoutSec: current.idleTimeoutSec,
     selectedClock: current.selectedClock,
@@ -448,6 +462,31 @@ const server = http.createServer(function (req, res) {
         res.end(JSON.stringify({ status: 'error', message: err.message }));
         logRequest(400, req.method, req.url, err.message);
       });
+    return;
+  }
+
+  // 2b. Diagnostic Endpoint: GET /api/debug
+  if (pathname === '/api/debug' && req.method === 'GET') {
+    const clocksDirExists = fs.existsSync(CLOCKS_DIR);
+    let filesInClocksDir = [];
+    if (clocksDirExists) {
+      try {
+        filesInClocksDir = fs.readdirSync(CLOCKS_DIR);
+      } catch (e) {}
+    }
+    const debugPayload = {
+      __dirname: ROOT_DIR,
+      clocksDir: CLOCKS_DIR,
+      clocksDirExists: clocksDirExists,
+      filesInClocksDir: filesInClocksDir,
+      currentConfig: loadDevConfig()
+    };
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store'
+    });
+    res.end(JSON.stringify(debugPayload, null, 2));
+    logRequest(200, req.method, req.url, 'clocksDirExists=' + clocksDirExists);
     return;
   }
 

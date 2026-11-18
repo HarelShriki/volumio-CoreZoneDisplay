@@ -15,9 +15,11 @@
   // Constants & Defaults
   // ==========================================================================
 
+  const DEFAULT_DISPLAY_MODE = 'screensaver_only';
   const DEFAULT_CLOCK_FILE = 'MainClockSelector.html';
   const DEFAULT_IDLE_TIMEOUT_SEC = 60;
   const DEFAULT_SCREENSAVER_ENABLED = true;
+  const TOOLBAR_AUTOHIDE_MS = 5000;
 
   const DEFAULT_RADIO_STATIONS = [
     { id: 1, name: 'Kan 88', url: 'https://27783.live.streamtheworld.com/KAN_88.mp3', uri: 'https://27783.live.streamtheworld.com/KAN_88.mp3' },
@@ -45,6 +47,7 @@
   // DOM References
   // ==========================================================================
 
+  const mainUiEl = document.getElementById('main-ui');
   const homeBtn = document.getElementById('home-btn');
   const viewTitleEl = document.getElementById('view-title');
   const headerClockEl = document.getElementById('header-clock');
@@ -117,6 +120,7 @@
   const samplePillBtns = document.querySelectorAll('.sample-pill-btn');
 
   // In-App Settings View Elements
+  const settingDisplayMode = document.getElementById('setting-display-mode');
   const settingScreensaverEnabled = document.getElementById('setting-screensaver-enabled');
   const settingIdleTimeout = document.getElementById('setting-idle-timeout');
   const timeoutDecBtn = document.getElementById('timeout-dec-btn');
@@ -175,7 +179,9 @@
   const screensaverFallbackClockEl = document.getElementById('screensaver-fallback-clock');
   const screensaverFallbackNoteEl = document.getElementById('screensaver-fallback-note');
   const screensaverWakeLayer = document.getElementById('screensaver-wake-layer');
+  const screensaverToolbar = document.getElementById('screensaver-toolbar');
   const screensaverCustomizeBtn = document.getElementById('screensaver-customize-btn');
+  const screensaverVolumioLink = document.getElementById('screensaver-volumio-link');
   const screensaverExitBtn = document.getElementById('screensaver-exit-btn');
 
   // ==========================================================================
@@ -183,6 +189,7 @@
   // ==========================================================================
 
   let currentView = 'home';
+  let displayMode = DEFAULT_DISPLAY_MODE;
   let screensaverEnabled = DEFAULT_SCREENSAVER_ENABLED;
   let idleTimeoutSec = DEFAULT_IDLE_TIMEOUT_SEC;
   let idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_SEC * 1000;
@@ -193,9 +200,12 @@
   let activeRadioUri = '';
 
   let idleTimerId = null;
+  let toolbarHideTimerId = null;
   let isScreensaverActive = false;
+  let isClockInteractive = false;
   let manualSleepTimestamp = 0;
   let toastTimeoutId = null;
+  let socketInitialized = false;
 
   let socket = null;
   let volumioState = {
@@ -369,10 +379,51 @@
       });
   }
 
+  function applyDisplayMode(mode) {
+    displayMode =
+      mode === 'full_ui' || mode === 'screensaver_only'
+        ? mode
+        : DEFAULT_DISPLAY_MODE;
+
+    if (screensaverVolumioLink) {
+      screensaverVolumioLink.setAttribute('href', VOLUMIO_BACKEND_URL);
+    }
+
+    if (displayMode === 'screensaver_only') {
+      // Pure standalone clock mode: hide main dashboard behind screensaver and show clock immediately
+      if (mainUiEl) {
+        mainUiEl.classList.add('hidden');
+      }
+      if (screensaverExitBtn) {
+        screensaverExitBtn.classList.add('hidden');
+      }
+      showScreensaver();
+      revealFloatingToolbar();
+    } else {
+      // Full UI + Screensaver mode: show dashboard and initialize Volumio Socket.IO
+      if (mainUiEl) {
+        mainUiEl.classList.remove('hidden');
+      }
+      if (!socketInitialized) {
+        socketInitialized = true;
+        initVolumioSocket();
+      }
+      if (isScreensaverActive) {
+        hideScreensaver();
+      }
+      resetIdleTimer();
+    }
+  }
+
   function applyConfigObject(cfg) {
     if (!cfg || typeof cfg !== 'object') {
       return;
     }
+
+    const newMode =
+      cfg.displayMode === 'full_ui' || cfg.displayMode === 'screensaver_only'
+        ? cfg.displayMode
+        : DEFAULT_DISPLAY_MODE;
 
     screensaverEnabled =
       cfg.screensaverEnabled !== undefined
@@ -410,6 +461,8 @@
       tileBadgeRadio.textContent = radioStations.length + ' Presets';
     }
 
+    applyDisplayMode(newMode);
+
     renderRadioPresets();
     if (currentView === 'settings') {
       populateSettingsForm();
@@ -432,12 +485,9 @@
       })
       .catch(function (err) {
         console.warn('CoreZoneDisplay: /api/config fallback:', err.message);
+        applyClockSource(DEFAULT_CLOCK_FILE);
+        applyDisplayMode(DEFAULT_DISPLAY_MODE);
         renderRadioPresets();
-      })
-      .finally(function () {
-        if (!isScreensaverActive) {
-          resetIdleTimer();
-        }
       });
   }
 
@@ -470,6 +520,9 @@
   // ==========================================================================
 
   function populateSettingsForm() {
+    if (settingDisplayMode) {
+      settingDisplayMode.value = displayMode || DEFAULT_DISPLAY_MODE;
+    }
     if (settingScreensaverEnabled) {
       settingScreensaverEnabled.checked = Boolean(screensaverEnabled);
     }
@@ -513,6 +566,13 @@
   }
 
   function handleSaveSettingsFromView() {
+    const newDisplayMode =
+      settingDisplayMode && settingDisplayMode.value === 'full_ui'
+        ? 'full_ui'
+        : settingDisplayMode && settingDisplayMode.value === 'screensaver_only'
+        ? 'screensaver_only'
+        : displayMode;
+
     const newEnabled = settingScreensaverEnabled
       ? Boolean(settingScreensaverEnabled.checked)
       : screensaverEnabled;
@@ -545,6 +605,7 @@
 
     savePluginConfig(
       {
+        displayMode: newDisplayMode,
         screensaverEnabled: newEnabled,
         idleTimeoutSec: newTimeoutSec,
         selectedClock: newClock,
@@ -1102,7 +1163,7 @@
   }
 
   // ==========================================================================
-  // Watchdog Idle Timer & Screensaver
+  // Watchdog Idle Timer, Screensaver & Floating Auto-Hiding Toolbar
   // ==========================================================================
 
   function clearIdleTimer() {
@@ -1112,31 +1173,63 @@
     }
   }
 
-  function setClockInteractiveMode(isInteractive) {
-    if (clockFrameEl) {
-      clockFrameEl.classList.toggle('interactive', Boolean(isInteractive));
+  function revealFloatingToolbar() {
+    if (!screensaverToolbar) {
+      return;
     }
-    if (screensaverWakeLayer) {
-      screensaverWakeLayer.classList.toggle('hidden', Boolean(isInteractive));
-    }
-    if (screensaverCustomizeBtn) {
-      screensaverCustomizeBtn.classList.toggle('hidden', Boolean(isInteractive));
-    }
-    if (screensaverExitBtn) {
-      screensaverExitBtn.classList.toggle('hidden', !isInteractive);
+    screensaverToolbar.classList.remove('toolbar-hidden');
+
+    if (toolbarHideTimerId !== null) {
+      clearTimeout(toolbarHideTimerId);
     }
 
-    if (isInteractive && clockFrameEl && clockFrameEl.contentWindow) {
-      try {
-        clockFrameEl.contentWindow.postMessage({ type: 'CLOCKWEB_OPEN_SELECTOR' }, '*');
-      } catch (e) {
-        // Ignore cross-window message errors
+    toolbarHideTimerId = setTimeout(function () {
+      if (!isClockInteractive && screensaverToolbar) {
+        screensaverToolbar.classList.add('toolbar-hidden');
       }
+    }, TOOLBAR_AUTOHIDE_MS);
+  }
+
+  function setClockInteractiveMode(isInteractive) {
+    isClockInteractive = Boolean(isInteractive);
+
+    if (clockFrameEl) {
+      clockFrameEl.classList.toggle('interactive', isClockInteractive);
+    }
+    if (screensaverWakeLayer) {
+      screensaverWakeLayer.classList.toggle('hidden', isClockInteractive);
+    }
+    if (screensaverCustomizeBtn) {
+      screensaverCustomizeBtn.classList.toggle('active-interactive', isClockInteractive);
+      screensaverCustomizeBtn.innerHTML = isClockInteractive
+        ? '<span>✓ Lock Clock</span>'
+        : '<span>⚙ Change Clock</span>';
+    }
+    if (screensaverExitBtn) {
+      screensaverExitBtn.classList.toggle(
+        'hidden',
+        displayMode === 'screensaver_only' || !isClockInteractive
+      );
+    }
+
+    if (isClockInteractive) {
+      if (screensaverToolbar) {
+        screensaverToolbar.classList.remove('toolbar-hidden');
+      }
+      if (clockFrameEl && clockFrameEl.contentWindow) {
+        try {
+          clockFrameEl.contentWindow.postMessage({ type: 'CLOCKWEB_OPEN_SELECTOR' }, '*');
+        } catch (e) {
+          // Ignore postMessage errors
+        }
+      }
+    } else {
+      revealFloatingToolbar();
     }
   }
 
   function showScreensaver() {
-    if (!screensaverEl || isScreensaverActive) {
+    if (!screensaverEl) {
       return;
     }
     clearIdleTimer();
@@ -1145,9 +1238,18 @@
     setClockInteractiveMode(false);
     screensaverEl.classList.remove('hidden');
     screensaverEl.setAttribute('aria-hidden', 'false');
+    if (displayMode === 'screensaver_only') {
+      revealFloatingToolbar();
+    } else if (screensaverToolbar) {
+      screensaverToolbar.classList.remove('toolbar-hidden');
+    }
   }
 
   function hideScreensaver() {
+    if (displayMode === 'screensaver_only') {
+      // Never hide screensaver when running in standalone Screensaver Only mode
+      return;
+    }
     if (!screensaverEl || !isScreensaverActive) {
       return;
     }
@@ -1158,6 +1260,9 @@
   }
 
   function resetIdleTimer() {
+    if (displayMode === 'screensaver_only') {
+      return;
+    }
     hideScreensaver();
     clearIdleTimer();
 
@@ -1499,17 +1604,23 @@
       );
     });
 
-    // Wake layer inside #screensaver: tap or click anywhere wakes back to main UI
+    // Wake layer inside #screensaver:
+    // - In 'screensaver_only' mode: reveals the 5-second floating toolbar without exiting to the full menu.
+    // - In 'full_ui' mode: wakes back to #main-ui.
     if (screensaverWakeLayer) {
       ['click', 'touchstart'].forEach(function (evtName) {
         screensaverWakeLayer.addEventListener(
           evtName,
           function (event) {
-            if (Date.now() - manualSleepTimestamp < 500) {
-              return;
-            }
             if (event && typeof event.stopPropagation === 'function') {
               event.stopPropagation();
+            }
+            if (displayMode === 'screensaver_only') {
+              revealFloatingToolbar();
+              return;
+            }
+            if (Date.now() - manualSleepTimestamp < 500) {
+              return;
             }
             resetIdleTimer();
           },
@@ -1518,15 +1629,15 @@
       });
     }
 
-    // "Change Clock Face" button inside #screensaver allows interacting with MainClockSelector.html
+    // "Change Clock" button toggles pointer-events on #clock-frame so user can pick a clock face inside MainClockSelector.html
     if (screensaverCustomizeBtn) {
       screensaverCustomizeBtn.addEventListener('click', function (event) {
         event.stopPropagation();
-        setClockInteractiveMode(true);
+        setClockInteractiveMode(!isClockInteractive);
       });
     }
 
-    // "Back to Player" button inside #screensaver exits clock customization
+    // "Back to Player" button inside #screensaver (only in full_ui mode)
     if (screensaverExitBtn) {
       screensaverExitBtn.addEventListener('click', function (event) {
         event.stopPropagation();
@@ -1883,10 +1994,13 @@
     updateClocks();
     setInterval(updateClocks, 1000);
 
+    if (screensaverVolumioLink) {
+      screensaverVolumioLink.setAttribute('href', VOLUMIO_BACKEND_URL);
+    }
+
     renderRadioPresets();
     bindEventListeners();
     fetchPluginConfig();
-    initVolumioSocket();
   }
 
   if (document.readyState === 'loading') {

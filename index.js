@@ -7,11 +7,18 @@ var fs = require('fs');
 var http = require('http');
 var https = require('https');
 var urlModule = require('url');
+var childProcess = require('child_process');
 
 var EXPRESS_PORT = 4004;
+var DEFAULT_DISPLAY_MODE = 'screensaver_only';
 var DEFAULT_CLOCK_FILE = 'MainClockSelector.html';
 var DEFAULT_IDLE_TIMEOUT_SEC = 60;
 var DEFAULT_SCREENSAVER_ENABLED = true;
+
+var DISPLAY_MODE_LABELS = {
+  screensaver_only: 'Screensaver Only (Clock Mode)',
+  full_ui: 'Full Menu + Screensaver'
+};
 
 var DEFAULT_RADIO_PRESETS = [
   {
@@ -36,6 +43,62 @@ var DEFAULT_RADIO_PRESETS = [
   }
 ];
 
+/**
+ * Resolves Volumio's built-in v-conf module reliably whether installed in
+ * plugin node_modules, /volumio/node_modules/v-conf, or standalone fallback.
+ */
+function createVConf() {
+  try {
+    return new (require('v-conf'))();
+  } catch (e1) {
+    try {
+      return new (require('/volumio/node_modules/v-conf'))();
+    } catch (e2) {
+      // Built-in v-conf compatible JSON store fallback so plugin never crashes if v-conf isn't in local node_modules
+      return {
+        _filePath: null,
+        _data: {},
+        loadFile: function (filePath) {
+          this._filePath = filePath;
+          try {
+            if (fs.existsSync(filePath)) {
+              this._data = JSON.parse(fs.readFileSync(filePath, 'utf8')) || {};
+            }
+          } catch (err) {
+            this._data = {};
+          }
+        },
+        get: function (key) {
+          if (this._data && this._data[key] !== undefined) {
+            return this._data[key].value !== undefined ? this._data[key].value : this._data[key];
+          }
+          return undefined;
+        },
+        set: function (key, val) {
+          var valType = typeof val;
+          if (!this._data) {
+            this._data = {};
+          }
+          this._data[key] = {
+            type: valType === 'boolean' || valType === 'number' ? valType : 'string',
+            value: val
+          };
+          if (this._filePath) {
+            try {
+              var dir = path.dirname(this._filePath);
+              if (fs.existsSync(dir)) {
+                fs.writeFileSync(this._filePath, JSON.stringify(this._data, null, 2), 'utf8');
+              }
+            } catch (err) {
+              // Ignore write error
+            }
+          }
+        }
+      };
+    }
+  }
+}
+
 function CoreZoneDisplay(context) {
   var self = this;
 
@@ -44,27 +107,62 @@ function CoreZoneDisplay(context) {
   self.logger = self.context.logger || console;
   self.configManager = self.context.configManager || null;
   self.config = null;
+  self.configFilePath = null;
   self.app = null;
   self.server = null;
 }
 
 /**
- * Volumio lifecycle: triggered when Volumio starts.
- * Loads config.json using Volumio's built-in v-conf.
+ * Helper to resolve config.json file path via Volumio's pluginManager or local directory
  */
-CoreZoneDisplay.prototype.onVolumioStart = function () {
+CoreZoneDisplay.prototype.getConfigurationFile = function (fileName) {
   var self = this;
-  var configFile = path.join(__dirname, 'config.json');
+  var targetFile = fileName || 'config.json';
 
   if (
     self.commandRouter &&
     self.commandRouter.pluginManager &&
     typeof self.commandRouter.pluginManager.getConfigurationFile === 'function'
   ) {
-    configFile = self.commandRouter.pluginManager.getConfigurationFile(self.context, 'config.json');
+    try {
+      return self.commandRouter.pluginManager.getConfigurationFile(self.context, targetFile);
+    } catch (err) {
+      self.logError('CoreZoneDisplay: pluginManager.getConfigurationFile error: ' + err.message);
+    }
   }
 
-  self.config = new (require('v-conf'))();
+  return path.join(__dirname, targetFile);
+};
+
+/**
+ * Volumio lifecycle: triggered when Volumio starts.
+ * Initializes this.config = new (require('v-conf'))() and loads config.json.
+ */
+CoreZoneDisplay.prototype.onVolumioStart = function () {
+  var self = this;
+  var configFile = self.getConfigurationFile('config.json');
+  var defaultConfigFile = path.join(__dirname, 'config.json');
+
+  // If Volumio's /data/configuration/.../config.json does not exist yet, seed it from plugin's config.json
+  try {
+    if (
+      configFile !== defaultConfigFile &&
+      !fs.existsSync(configFile) &&
+      fs.existsSync(defaultConfigFile)
+    ) {
+      var targetDir = path.dirname(configFile);
+      if (fs.existsSync(targetDir)) {
+        fs.copyFileSync(defaultConfigFile, configFile);
+      } else {
+        configFile = defaultConfigFile;
+      }
+    }
+  } catch (err) {
+    configFile = defaultConfigFile;
+  }
+
+  self.configFilePath = configFile;
+  self.config = createVConf();
   self.config.loadFile(configFile);
   self.logInfo('CoreZoneDisplay: onVolumioStart loaded config from ' + configFile);
 
@@ -84,70 +182,67 @@ CoreZoneDisplay.prototype.getConfigurationFiles = function () {
 CoreZoneDisplay.prototype.ensureConfigLoaded = function () {
   var self = this;
   if (!self.config) {
-    var fallbackConfigFile = path.join(__dirname, 'config.json');
-    if (
-      self.commandRouter &&
-      self.commandRouter.pluginManager &&
-      typeof self.commandRouter.pluginManager.getConfigurationFile === 'function'
-    ) {
-      fallbackConfigFile = self.commandRouter.pluginManager.getConfigurationFile(self.context, 'config.json');
-    }
-    self.config = new (require('v-conf'))();
-    self.config.loadFile(fallbackConfigFile);
+    self.onVolumioStart();
   }
 };
 
 /**
+ * Returns the resolved submodule/clocks directory path
+ */
+CoreZoneDisplay.prototype.getClocksDir = function () {
+  return path.join(__dirname, 'submodule', 'clocks');
+};
+
+/**
  * Scans submodule/clocks for .html files, ensuring MainClockSelector.html
- * is always listed and prioritized as the default option.
+ * is always listed and set as default.
  */
 CoreZoneDisplay.prototype.getAvailableClocks = function () {
   var self = this;
-  var candidateDirs = [
-    path.join(__dirname, 'submodule', 'clocks'),
-    path.join(__dirname, 'public', 'clocks'),
-    path.join(__dirname, 'ClockWeb')
-  ];
+  var clocksDir = self.getClocksDir();
   var clockFiles = [DEFAULT_CLOCK_FILE];
 
-  candidateDirs.forEach(function (clocksDir) {
-    try {
-      if (fs.existsSync(clocksDir)) {
-        var entries = fs.readdirSync(clocksDir);
-        entries.forEach(function (entry) {
-          if (
-            typeof entry === 'string' &&
-            entry.toLowerCase().endsWith('.html') &&
-            clockFiles.indexOf(entry) === -1
-          ) {
-            clockFiles.push(entry);
-          }
-        });
-        // Also check known sub-clock entry points
-        ['CASIO/index.html', 'digital/index.html'].forEach(function (subClock) {
-          if (
-            fs.existsSync(path.join(clocksDir, subClock)) &&
-            clockFiles.indexOf(subClock) === -1
-          ) {
-            clockFiles.push(subClock);
-          }
-        });
-      }
-    } catch (err) {
-      self.logError('CoreZoneDisplay: Failed to scan ' + clocksDir + ': ' + err.message);
+  try {
+    if (fs.existsSync(clocksDir)) {
+      var entries = fs.readdirSync(clocksDir);
+      entries.forEach(function (entry) {
+        if (
+          typeof entry === 'string' &&
+          entry.toLowerCase().endsWith('.html') &&
+          clockFiles.indexOf(entry) === -1
+        ) {
+          clockFiles.push(entry);
+        }
+      });
+
+      ['CASIO/index.html', 'digital/index.html'].forEach(function (subClock) {
+        if (
+          fs.existsSync(path.join(clocksDir, subClock)) &&
+          clockFiles.indexOf(subClock) === -1
+        ) {
+          clockFiles.push(subClock);
+        }
+      });
     }
-  });
+  } catch (err) {
+    self.logError('CoreZoneDisplay: Failed to scan submodule/clocks: ' + err.message);
+  }
 
   return clockFiles;
 };
 
 /**
- * Reads current settings (screensaver, availableClocks, radioStations, podcastFeeds)
- * from v-conf with safe defaults.
+ * Reads current settings from v-conf with safe defaults
  */
 CoreZoneDisplay.prototype.getCurrentSettings = function () {
   var self = this;
   self.ensureConfigLoaded();
+
+  var rawMode = self.config.get('displayMode');
+  var displayMode =
+    rawMode === 'full_ui' || rawMode === 'screensaver_only'
+      ? rawMode
+      : DEFAULT_DISPLAY_MODE;
 
   var screensaverEnabled = self.config.get('screensaverEnabled');
   if (screensaverEnabled === undefined || screensaverEnabled === null) {
@@ -191,30 +286,6 @@ CoreZoneDisplay.prototype.getCurrentSettings = function () {
     });
   }
 
-  // Parse any additional radio stations beyond the 5 primary presets
-  var rawExtraRadio = self.config.get('extraRadioStationsJson');
-  if (typeof rawExtraRadio === 'string' && rawExtraRadio.trim()) {
-    try {
-      var parsedExtra = JSON.parse(rawExtraRadio);
-      if (Array.isArray(parsedExtra)) {
-        parsedExtra.forEach(function (st, idx) {
-          if (st && st.name && (st.url || st.uri)) {
-            var u = String(st.url || st.uri).trim();
-            radioStations.push({
-              id: 6 + idx,
-              name: String(st.name).trim(),
-              url: u,
-              uri: u
-            });
-          }
-        });
-      }
-    } catch (e) {
-      // Ignore malformed JSON
-    }
-  }
-
-  // Parse saved custom podcast RSS feeds
   var podcastFeeds = [];
   var rawPodcasts = self.config.get('podcastFeedsJson');
   if (typeof rawPodcasts === 'string' && rawPodcasts.trim()) {
@@ -237,6 +308,7 @@ CoreZoneDisplay.prototype.getCurrentSettings = function () {
   }
 
   return {
+    displayMode: displayMode,
     screensaverEnabled: screensaverEnabled,
     idleTimeoutSec: idleTimeoutSec,
     selectedClock: selectedClock,
@@ -247,29 +319,35 @@ CoreZoneDisplay.prototype.getCurrentSettings = function () {
 };
 
 /**
- * Volumio Settings UI builder: scans submodule/clocks for .html files
- * and binds current configuration values to UIConfig.json.
+ * Volumio Settings UI builder: loads UIConfig.json via i18nJson,
+ * binds current this.config values to uiconf.sections[0].content,
+ * populates selectedClock options, and resolves defer.resolve(uiconf).
  */
 CoreZoneDisplay.prototype.getUIConfig = function () {
   var self = this;
   var defer = libQ.defer();
 
-  var langCode = 'en';
+  self.ensureConfigLoaded();
+
+  var lang_code = 'en';
   if (
     self.commandRouter &&
     self.commandRouter.sharedVars &&
     typeof self.commandRouter.sharedVars.get === 'function'
   ) {
-    langCode = self.commandRouter.sharedVars.get('language_code') || 'en';
+    lang_code = self.commandRouter.sharedVars.get('language_code') || 'en';
   }
 
-  var i18nFile = path.join(__dirname, 'i18n', 'strings_' + langCode + '.json');
-  var defaultI18nFile = path.join(__dirname, 'i18n', 'strings_en.json');
-  var uiConfigFile = path.join(__dirname, 'UIConfig.json');
+  var langFile = __dirname + '/i18n/strings_' + lang_code + '.json';
+  var defaultLangFile = __dirname + '/i18n/strings_en.json';
+  var uiConfigFile = __dirname + '/UIConfig.json';
 
-  self.commandRouter
-    .i18nJson(i18nFile, defaultI18nFile, uiConfigFile)
-    .then(function (uiconf) {
+  if (!fs.existsSync(langFile)) {
+    langFile = defaultLangFile;
+  }
+
+  function populateAndResolve(uiconf) {
+    try {
       var settings = self.getCurrentSettings();
       var availableClocks = settings.availableClocks.slice();
 
@@ -277,53 +355,85 @@ CoreZoneDisplay.prototype.getUIConfig = function () {
         availableClocks.push(settings.selectedClock);
       }
 
-      // Section 0: Display & Screensaver Settings
-      var displayContent = uiconf.sections[0].content;
-      displayContent[0].value = settings.screensaverEnabled;
-      displayContent[1].value = settings.idleTimeoutSec;
-      displayContent[2].options = availableClocks.map(function (clockName) {
+      var content = uiconf.sections[0].content;
+
+      // 0: displayMode (select)
+      var modeLabel =
+        DISPLAY_MODE_LABELS[settings.displayMode] ||
+        DISPLAY_MODE_LABELS[DEFAULT_DISPLAY_MODE];
+      content[0].value = {
+        value: settings.displayMode,
+        label: modeLabel
+      };
+
+      // 1: screensaverEnabled (switch)
+      content[1].value = Boolean(settings.screensaverEnabled);
+
+      // 2: idleTimeoutSec (number)
+      content[2].value = Number(settings.idleTimeoutSec);
+
+      // 3: selectedClock (select)
+      content[3].options = availableClocks.map(function (clockName) {
         return {
           value: clockName,
           label: clockName
         };
       });
-      displayContent[2].value = {
+      content[3].value = {
         value: settings.selectedClock,
         label: settings.selectedClock
       };
 
-      // Section 1: Favorite Radio Stations (5 Presets)
-      if (uiconf.sections[1] && Array.isArray(uiconf.sections[1].content)) {
-        var radioContent = uiconf.sections[1].content;
-        for (var i = 0; i < 5; i++) {
-          var station = settings.radioStations[i] || DEFAULT_RADIO_PRESETS[i];
-          var nameFieldIndex = i * 2;
-          var urlFieldIndex = i * 2 + 1;
-          if (radioContent[nameFieldIndex]) {
-            radioContent[nameFieldIndex].value = station.name;
-          }
-          if (radioContent[urlFieldIndex]) {
-            radioContent[urlFieldIndex].value = station.url;
-          }
-        }
-      }
-
       defer.resolve(uiconf);
-    })
-    .fail(function (err) {
-      self.logError('CoreZoneDisplay: Failed to parse UIConfig.json: ' + err);
+    } catch (err) {
+      self.logError('CoreZoneDisplay: Error populating UIConfig: ' + err.message);
       defer.reject(new Error());
-    });
+    }
+  }
+
+  if (self.commandRouter && typeof self.commandRouter.i18nJson === 'function') {
+    self.commandRouter
+      .i18nJson(langFile, defaultLangFile, uiConfigFile)
+      .then(function (uiconf) {
+        populateAndResolve(uiconf);
+      })
+      .fail(function (err) {
+        self.logError('CoreZoneDisplay: i18nJson error, using fallback parser: ' + err);
+        try {
+          var rawUi = JSON.parse(fs.readFileSync(uiConfigFile, 'utf8'));
+          populateAndResolve(rawUi);
+        } catch (e) {
+          defer.reject(new Error());
+        }
+      });
+  } else {
+    try {
+      var rawUiConf = JSON.parse(fs.readFileSync(uiConfigFile, 'utf8'));
+      populateAndResolve(rawUiConf);
+    } catch (e) {
+      defer.reject(new Error());
+    }
+  }
 
   return defer.promise;
 };
 
 /**
- * Saves Section 1: Display & Screensaver Settings (from Volumio Settings UI)
+ * Saves settings from Volumio's Settings UI.
+ * Correctly extracts .value from Volumio select objects.
  */
-CoreZoneDisplay.prototype.saveDisplaySettings = function (data) {
+CoreZoneDisplay.prototype.saveSettings = function (data) {
   var self = this;
   self.ensureConfigLoaded();
+
+  var rawDisplayMode =
+    data && data.displayMode && data.displayMode.value !== undefined
+      ? data.displayMode.value
+      : data && data.displayMode;
+  var displayMode =
+    rawDisplayMode === 'full_ui' || rawDisplayMode === 'screensaver_only'
+      ? rawDisplayMode
+      : DEFAULT_DISPLAY_MODE;
 
   var screensaverEnabled =
     data && data.screensaverEnabled !== undefined
@@ -335,24 +445,24 @@ CoreZoneDisplay.prototype.saveDisplaySettings = function (data) {
     idleTimeoutSec = DEFAULT_IDLE_TIMEOUT_SEC;
   }
 
-  var selectedClock = DEFAULT_CLOCK_FILE;
-  if (data && data.selectedClock) {
-    if (typeof data.selectedClock === 'object' && data.selectedClock.value) {
-      selectedClock = String(data.selectedClock.value).trim();
-    } else if (typeof data.selectedClock === 'string') {
-      selectedClock = data.selectedClock.trim();
-    }
-  }
-  if (!selectedClock) {
-    selectedClock = DEFAULT_CLOCK_FILE;
-  }
+  var rawSelectedClock =
+    data && data.selectedClock && data.selectedClock.value !== undefined
+      ? data.selectedClock.value
+      : data && data.selectedClock;
+  var selectedClock =
+    typeof rawSelectedClock === 'string' && rawSelectedClock.trim()
+      ? rawSelectedClock.trim()
+      : DEFAULT_CLOCK_FILE;
 
+  self.config.set('displayMode', displayMode);
   self.config.set('screensaverEnabled', screensaverEnabled);
   self.config.set('idleTimeoutSec', idleTimeoutSec);
   self.config.set('selectedClock', selectedClock);
 
   self.logInfo(
-    'CoreZoneDisplay: Saved display settings -> screensaverEnabled=' +
+    'CoreZoneDisplay: Saved settings -> displayMode=' +
+      displayMode +
+      ', screensaverEnabled=' +
       screensaverEnabled +
       ', idleTimeoutSec=' +
       idleTimeoutSec +
@@ -361,62 +471,14 @@ CoreZoneDisplay.prototype.saveDisplaySettings = function (data) {
   );
 
   if (self.commandRouter && typeof self.commandRouter.pushToastMessage === 'function') {
-    self.commandRouter.pushToastMessage(
-      'success',
-      'CoreZoneDisplay',
-      'Display & screensaver settings saved'
-    );
+    self.commandRouter.pushToastMessage('success', 'CoreZoneDisplay', 'Settings saved');
   }
 
   return libQ.resolve();
 };
 
 /**
- * Saves Section 2: Favorite Radio Stations (5 Presets) (from Volumio Settings UI)
- */
-CoreZoneDisplay.prototype.saveRadioSettings = function (data) {
-  var self = this;
-  self.ensureConfigLoaded();
-
-  for (var i = 1; i <= 5; i++) {
-    var defaultPreset = DEFAULT_RADIO_PRESETS[i - 1];
-    var nameKey = 'radio' + i + 'Name';
-    var urlKey = 'radio' + i + 'Url';
-
-    var rawName = data && data[nameKey] !== undefined ? String(data[nameKey]).trim() : '';
-    var rawUrl = data && data[urlKey] !== undefined ? String(data[urlKey]).trim() : '';
-
-    self.config.set(nameKey, rawName || defaultPreset.name);
-    self.config.set(urlKey, rawUrl || defaultPreset.url);
-  }
-
-  self.logInfo('CoreZoneDisplay: Saved 5 radio presets.');
-
-  if (self.commandRouter && typeof self.commandRouter.pushToastMessage === 'function') {
-    self.commandRouter.pushToastMessage(
-      'success',
-      'CoreZoneDisplay',
-      'Favorite radio stations saved'
-    );
-  }
-
-  return libQ.resolve();
-};
-
-/**
- * Unified saveSettings fallback method
- */
-CoreZoneDisplay.prototype.saveSettings = function (data) {
-  var self = this;
-  if (data && (data.radio1Name !== undefined || data.radio1Url !== undefined)) {
-    return self.saveRadioSettings(data);
-  }
-  return self.saveDisplaySettings(data);
-};
-
-/**
- * Updates configuration from POST /api/config (In-App Settings, Radio Quick-Add, Podcast RSS Add)
- * keeping v-conf and Volumio's UIConfig 100% synchronized.
+ * Updates configuration from POST /api/config (In-App Settings)
  */
 CoreZoneDisplay.prototype.updateConfigFromApi = function (payload) {
   var self = this;
@@ -424,6 +486,14 @@ CoreZoneDisplay.prototype.updateConfigFromApi = function (payload) {
 
   if (!payload || typeof payload !== 'object') {
     return self.getCurrentSettings();
+  }
+
+  if (payload.displayMode !== undefined) {
+    var mode =
+      payload.displayMode === 'full_ui' || payload.displayMode === 'screensaver_only'
+        ? payload.displayMode
+        : DEFAULT_DISPLAY_MODE;
+    self.config.set('displayMode', mode);
   }
 
   if (payload.screensaverEnabled !== undefined) {
@@ -442,7 +512,6 @@ CoreZoneDisplay.prototype.updateConfigFromApi = function (payload) {
     self.config.set('selectedClock', clockStr);
   }
 
-  // Support saving radioStations array or individual radio1Name..radio5Url keys
   if (Array.isArray(payload.radioStations)) {
     for (var i = 0; i < 5; i++) {
       var defaultPreset = DEFAULT_RADIO_PRESETS[i];
@@ -458,32 +527,6 @@ CoreZoneDisplay.prototype.updateConfigFromApi = function (payload) {
 
       self.config.set('radio' + (i + 1) + 'Name', nameVal);
       self.config.set('radio' + (i + 1) + 'Url', urlVal);
-    }
-
-    var extraStations = payload.radioStations.slice(5).map(function (st) {
-      return {
-        name: String((st && st.name) || 'Station').trim(),
-        url: String((st && (st.url || st.uri)) || '').trim()
-      };
-    }).filter(function (st) {
-      return Boolean(st.url);
-    });
-
-    self.config.set('extraRadioStationsJson', JSON.stringify(extraStations));
-  } else {
-    for (var j = 1; j <= 5; j++) {
-      if (payload['radio' + j + 'Name'] !== undefined) {
-        self.config.set(
-          'radio' + j + 'Name',
-          String(payload['radio' + j + 'Name']).trim() || DEFAULT_RADIO_PRESETS[j - 1].name
-        );
-      }
-      if (payload['radio' + j + 'Url'] !== undefined) {
-        self.config.set(
-          'radio' + j + 'Url',
-          String(payload['radio' + j + 'Url']).trim() || DEFAULT_RADIO_PRESETS[j - 1].url
-        );
-      }
     }
   }
 
@@ -505,7 +548,34 @@ CoreZoneDisplay.prototype.updateConfigFromApi = function (payload) {
 };
 
 /**
- * Helper: Fetches an HTTP/HTTPS URL with redirect support (up to 5 redirects)
+ * Builds diagnostic object for GET /api/debug and journal logging
+ */
+CoreZoneDisplay.prototype.getDebugDiagnostics = function () {
+  var self = this;
+  var clocksDir = self.getClocksDir();
+  var clocksDirExists = false;
+  var filesInClocksDir = [];
+
+  try {
+    clocksDirExists = fs.existsSync(clocksDir);
+    if (clocksDirExists) {
+      filesInClocksDir = fs.readdirSync(clocksDir);
+    }
+  } catch (err) {
+    self.logError('CoreZoneDisplay: Error inspecting clocksDir: ' + err.message);
+  }
+
+  return {
+    __dirname: __dirname,
+    clocksDir: clocksDir,
+    clocksDirExists: clocksDirExists,
+    filesInClocksDir: filesInClocksDir,
+    currentConfig: self.getCurrentSettings()
+  };
+};
+
+/**
+ * Helper: Fetches an HTTP/HTTPS URL with redirect support
  */
 CoreZoneDisplay.prototype.fetchUrlText = function (targetUrl, redirectCount) {
   var self = this;
@@ -552,7 +622,7 @@ CoreZoneDisplay.prototype.fetchUrlText = function (targetUrl, redirectCount) {
 
         var chunks = [];
         var totalBytes = 0;
-        var maxBytes = 2 * 1024 * 1024; // 2 MB cap for safety on Raspberry Pi
+        var maxBytes = 2 * 1024 * 1024;
 
         res.on('data', function (chunk) {
           totalBytes += chunk.length;
@@ -577,9 +647,6 @@ CoreZoneDisplay.prototype.fetchUrlText = function (targetUrl, redirectCount) {
   });
 };
 
-/**
- * Helper: Cleans XML CDATA and common HTML entities
- */
 function cleanXmlText(raw) {
   if (!raw || typeof raw !== 'string') {
     return '';
@@ -595,9 +662,6 @@ function cleanXmlText(raw) {
     .trim();
 }
 
-/**
- * Helper: Lightweight RSS XML parser extracting feed title and latest 10 episodes
- */
 CoreZoneDisplay.prototype.parsePodcastRss = function (xmlText) {
   var channelHeader = xmlText.split(/<item[\s>]/i)[0] || '';
   var feedTitleMatch = channelHeader.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
@@ -609,23 +673,17 @@ CoreZoneDisplay.prototype.parsePodcastRss = function (xmlText) {
 
   while ((match = itemRegex.exec(xmlText)) !== null && episodes.length < 10) {
     var itemBlock = match[1];
-
     var titleMatch = itemBlock.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
     var enclosureMatch = itemBlock.match(/<enclosure[^>]+url=["']([^"']+)["'][^>]*>/i);
     var pubDateMatch = itemBlock.match(/<pubDate[^>]*>([\s\S]*?)<\/pubDate>/i);
     var durationMatch = itemBlock.match(/<itunes:duration[^>]*>([\s\S]*?)<\/itunes:duration>/i);
 
     if (enclosureMatch && enclosureMatch[1]) {
-      var epTitle = titleMatch ? cleanXmlText(titleMatch[1]) : 'Episode ' + (episodes.length + 1);
-      var audioUrl = cleanXmlText(enclosureMatch[1]);
-      var pubDate = pubDateMatch ? cleanXmlText(pubDateMatch[1]) : '';
-      var duration = durationMatch ? cleanXmlText(durationMatch[1]) : '';
-
       episodes.push({
-        title: epTitle,
-        audioUrl: audioUrl,
-        pubDate: pubDate,
-        duration: duration
+        title: titleMatch ? cleanXmlText(titleMatch[1]) : 'Episode ' + (episodes.length + 1),
+        audioUrl: cleanXmlText(enclosureMatch[1]),
+        pubDate: pubDateMatch ? cleanXmlText(pubDateMatch[1]) : '',
+        duration: durationMatch ? cleanXmlText(durationMatch[1]) : ''
       });
     }
   }
@@ -647,17 +705,43 @@ CoreZoneDisplay.prototype.onStart = function () {
   try {
     self.ensureConfigLoaded();
 
+    var clocksDir = self.getClocksDir();
+    var mainClockFile = path.join(clocksDir, DEFAULT_CLOCK_FILE);
+
+    // If submodule/clocks is empty on the Pi after git pull, attempt automatic git submodule init
+    if (!fs.existsSync(mainClockFile) && fs.existsSync(path.join(__dirname, '.git'))) {
+      try {
+        self.logInfo('CoreZoneDisplay: submodule/clocks empty, running git submodule update --init...');
+        childProcess.execSync('git submodule sync --recursive && git submodule update --init --recursive', {
+          cwd: __dirname,
+          timeout: 20000
+        });
+      } catch (gitErr) {
+        self.logError('CoreZoneDisplay: Automatic git submodule init warning: ' + gitErr.message);
+      }
+    }
+
+    var diag = self.getDebugDiagnostics();
+    self.logInfo(
+      'CoreZoneDisplay Diagnostics -> clocksDir=' +
+        diag.clocksDir +
+        ' | exists=' +
+        diag.clocksDirExists +
+        ' | files=' +
+        JSON.stringify(diag.filesInClocksDir)
+    );
+
     self.app = express();
     self.app.use(express.json());
 
     var publicDir = path.join(__dirname, 'public');
 
-    // GET /api/config -> Returns screensaver settings, availableClocks, radioStations, podcastFeeds
+    // GET /api/config -> Returns displayMode, screensaverEnabled, idleTimeoutSec, selectedClock, availableClocks
     self.app.get('/api/config', function (req, res) {
       res.json(self.getCurrentSettings());
     });
 
-    // POST /api/config -> Saves updated settings from In-App Settings / Radio / Podcast modals
+    // POST /api/config -> Saves updated settings
     self.app.post('/api/config', function (req, res) {
       try {
         var updated = self.updateConfigFromApi(req.body || {});
@@ -674,7 +758,12 @@ CoreZoneDisplay.prototype.onStart = function () {
       }
     });
 
-    // GET /api/podcasts/episodes?url=<rssUrl> -> Fetches latest 10 episodes from a Podcast RSS feed
+    // GET /api/debug -> Returns runtime diagnostics for Raspberry Pi verification
+    self.app.get('/api/debug', function (req, res) {
+      res.json(self.getDebugDiagnostics());
+    });
+
+    // GET /api/podcasts/episodes?url=<rssUrl>
     self.app.get('/api/podcasts/episodes', function (req, res) {
       var rssUrl = req.query && req.query.url ? String(req.query.url).trim() : '';
       if (!rssUrl) {
@@ -703,14 +792,12 @@ CoreZoneDisplay.prototype.onStart = function () {
         });
     });
 
-    // Explicitly mount submodule/clocks (plus fallback paths) at /clocks
-    self.app.use('/clocks', express.static(path.join(__dirname, 'submodule', 'clocks')));
-    self.app.use('/clocks', express.static(path.join(__dirname, 'public', 'clocks')));
-    self.app.use('/clocks', express.static(path.join(__dirname, 'ClockWeb')));
+    // Explicitly mount /clocks to path.join(__dirname, 'submodule', 'clocks')
+    self.app.use('/clocks', express.static(clocksDir));
 
-    // Return real 404 for missing /clocks/* files so index.html is never loaded inside #clock-frame
+    // Return strict 404 for missing /clocks/* files so index.html is never served inside #clock-frame
     self.app.use('/clocks', function (req, res) {
-      res.status(404).send('Clock asset not found');
+      res.status(404).send('Clock file not found in ' + clocksDir);
     });
 
     // Serve main public frontend assets
@@ -727,8 +814,14 @@ CoreZoneDisplay.prototype.onStart = function () {
     });
 
     self.server.on('error', function (err) {
-      self.logError('CoreZoneDisplay server error: ' + err.message);
-      defer.reject(err);
+      self.logError('CoreZoneDisplay server error on port ' + EXPRESS_PORT + ': ' + err.message);
+      if (err && err.code === 'EADDRINUSE') {
+        // Resolve so Volumio still marks the plugin as STARTED and displays the Settings button
+        self.logInfo('CoreZoneDisplay: Port ' + EXPRESS_PORT + ' already in use; resolving onStart so Settings UI stays active.');
+        defer.resolve();
+      } else {
+        defer.reject(err);
+      }
     });
   } catch (err) {
     self.logError('Failed to start CoreZoneDisplay: ' + err.message);

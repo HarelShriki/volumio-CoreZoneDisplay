@@ -496,6 +496,40 @@
     }
   }
 
+  // Last settings applied to the screen; used to apply only real changes
+  let lastAppliedConfigJson = '';
+  const CONFIG_POLL_INTERVAL_MS = 5000;
+
+  // Applies settings only when they differ from what is already on screen,
+  // so the live updates below don't interrupt the user for no reason.
+  function applyConfigIfChanged(cfg) {
+    if (!cfg || typeof cfg !== 'object') {
+      return;
+    }
+    const json = JSON.stringify(cfg);
+    if (json === lastAppliedConfigJson) {
+      return;
+    }
+    lastAppliedConfigJson = json;
+    applyConfigObject(cfg);
+  }
+
+  // Picks up changes saved from the Volumio settings page (or another screen)
+  function pollPluginConfig() {
+    fetch('/api/config', { cache: 'no-store' })
+      .then(function (res) {
+        return res.ok ? res.json() : null;
+      })
+      .then(function (cfg) {
+        if (cfg) {
+          applyConfigIfChanged(cfg);
+        }
+      })
+      .catch(function () {
+        // Server briefly unreachable; try again next interval
+      });
+  }
+
   function fetchPluginConfig() {
     return fetch('/api/config', { cache: 'no-store' })
       .then(function (res) {
@@ -505,7 +539,7 @@
         return res.json();
       })
       .then(function (cfg) {
-        applyConfigObject(cfg);
+        applyConfigIfChanged(cfg);
       })
       .catch(function (err) {
         console.warn('CoreZoneDisplay: /api/config fallback:', err.message);
@@ -529,7 +563,7 @@
       })
       .then(function (result) {
         if (result && result.config) {
-          applyConfigObject(result.config);
+          applyConfigIfChanged(result.config);
         }
         showToast(successMsg || 'Settings saved');
         return result;
@@ -2307,6 +2341,11 @@
           socket.on('pushBrowseLibrary', function (data) {
             handlePushBrowseLibrary(data);
           });
+
+          // Settings saved in Volumio arrive here instantly
+          socket.on('pushCoreZoneDisplaySettings', function (cfg) {
+            applyConfigIfChanged(cfg);
+          });
         } catch (err) {
           console.error('CoreZoneDisplay Socket.IO init error:', err);
           setConnectionUI(false, 'Error');
@@ -2334,6 +2373,7 @@
     renderRadioPresets();
     bindEventListeners();
     fetchPluginConfig();
+    setInterval(pollPluginConfig, CONFIG_POLL_INTERVAL_MS);
   }
 
   if (document.readyState === 'loading') {

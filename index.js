@@ -10,14 +10,31 @@ var urlModule = require('url');
 var childProcess = require('child_process');
 
 var EXPRESS_PORT = 4004;
+
+function getLocalIpAddress() {
+  try {
+    var ifaces = require('os').networkInterfaces();
+    for (var name in ifaces) {
+      var list = ifaces[name] || [];
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].family === 'IPv4' || list[i].family === 4) {
+          if (!list[i].internal) {
+            return list[i].address;
+          }
+        }
+      }
+    }
+  } catch (e) {}
+  return 'localhost';
+}
 var DEFAULT_DISPLAY_MODE = 'screensaver_only';
 var DEFAULT_CLOCK_FILE = 'MainClockSelector.html';
 var DEFAULT_IDLE_TIMEOUT_SEC = 60;
 var DEFAULT_SCREENSAVER_ENABLED = true;
 
 var DISPLAY_MODE_LABELS = {
-  screensaver_only: 'Screensaver Only (Clock Mode)',
-  full_ui: 'Full Menu + Screensaver'
+  screensaver_only: 'Clock Only',
+  full_ui: 'Player Menu + Clock When Idle'
 };
 
 var DEFAULT_RADIO_PRESETS = [
@@ -328,7 +345,7 @@ CoreZoneDisplay.prototype.getCurrentSettings = function () {
 
 /**
  * Volumio Settings UI builder: loads UIConfig.json via i18nJson,
- * binds current this.config values to uiconf.sections[0].content,
+ * binds current this.config values to the fields of every section,
  * populates selectedClock options, and resolves defer.resolve(uiconf).
  */
 CoreZoneDisplay.prototype.getUIConfig = function () {
@@ -375,17 +392,17 @@ CoreZoneDisplay.prototype.getUIConfig = function () {
         availableClocks.push(settings.selectedClock);
       }
 
-      var content = uiconf.sections[0].content;
+      // Fields are spread across several sections; flatten them for lookup
+      var content = [];
+      (uiconf.sections || []).forEach(function (section) {
+        if (section && Array.isArray(section.content)) {
+          content = content.concat(section.content);
+        }
+      });
 
       var modeLabel =
         DISPLAY_MODE_LABELS[settings.displayMode] ||
         DISPLAY_MODE_LABELS[DEFAULT_DISPLAY_MODE];
-
-      var open1 = findContentItem(content, 'openSetting1');
-      if (open1) {
-        open1.label = 'Setting 1: Display & Startup Mode (' + modeLabel + ')';
-        open1.value = false;
-      }
 
       var displayModeEl = findContentItem(content, 'displayMode');
       if (displayModeEl) {
@@ -393,20 +410,6 @@ CoreZoneDisplay.prototype.getUIConfig = function () {
           value: settings.displayMode,
           label: modeLabel
         };
-      }
-
-      var open2 = findContentItem(content, 'openSetting2');
-      if (open2) {
-        var playNotice = settings.preventScreensaverWhilePlaying ? ' · Suppressed on Play' : '';
-        open2.label =
-          'Setting 2: Idle Screensaver & Timeout (' +
-          (settings.screensaverEnabled ? 'Enabled' : 'Disabled') +
-          ' · ' +
-          settings.idleTimeoutSec +
-          's' +
-          playNotice +
-          ')';
-        open2.value = false;
       }
 
       var ssEnabledEl = findContentItem(content, 'screensaverEnabled');
@@ -424,12 +427,6 @@ CoreZoneDisplay.prototype.getUIConfig = function () {
         timeoutEl.value = Number(settings.idleTimeoutSec);
       }
 
-      var open3 = findContentItem(content, 'openSetting3');
-      if (open3) {
-        open3.label = 'Setting 3: Active Clock Face (' + settings.selectedClock + ')';
-        open3.value = false;
-      }
-
       var clockEl = findContentItem(content, 'selectedClock');
       if (clockEl) {
         clockEl.options = availableClocks.map(function (clockName) {
@@ -444,19 +441,6 @@ CoreZoneDisplay.prototype.getUIConfig = function () {
         };
       }
 
-      var stationSummaryNames = settings.radioStations
-        .slice(0, 3)
-        .map(function (s) {
-          return s.name;
-        })
-        .join(', ');
-      var open4 = findContentItem(content, 'openSetting4');
-      if (open4) {
-        open4.label =
-          'Setting 4: Favorite Radio Stations (5 Presets: ' + stationSummaryNames + '…)';
-        open4.value = false;
-      }
-
       for (var r = 1; r <= 5; r++) {
         var presetObj = settings.radioStations[r - 1] || DEFAULT_RADIO_PRESETS[r - 1];
         var rNameEl = findContentItem(content, 'radio' + r + 'Name');
@@ -469,11 +453,16 @@ CoreZoneDisplay.prototype.getUIConfig = function () {
         }
       }
 
-      var open5 = findContentItem(content, 'openSetting5');
-      if (open5) {
-        open5.label =
-          'Setting 5: Web Display & Clock Settings URLs (Port ' + EXPRESS_PORT + ')';
-        open5.value = false;
+      // Show real, clickable addresses for this device
+      var hostForLinks = getLocalIpAddress();
+      var displayUrlEl = findContentItem(content, 'displayUrl');
+      if (displayUrlEl) {
+        displayUrlEl.value = 'http://' + hostForLinks + ':' + EXPRESS_PORT;
+      }
+      var clockSettingsUrlEl = findContentItem(content, 'clockSettingsUrl');
+      if (clockSettingsUrlEl) {
+        clockSettingsUrlEl.value =
+          'http://' + hostForLinks + ':' + EXPRESS_PORT + '/clocks/digital/settings.html';
       }
 
       defer.resolve(uiconf);
@@ -517,45 +506,49 @@ CoreZoneDisplay.prototype.getUIConfig = function () {
 CoreZoneDisplay.prototype.saveSettings = function (data) {
   var self = this;
   self.ensureConfigLoaded();
+  data = data || {};
 
-  var rawDisplayMode =
-    data && data.displayMode && data.displayMode.value !== undefined
-      ? data.displayMode.value
-      : data && data.displayMode;
-  var displayMode =
-    rawDisplayMode === 'full_ui' || rawDisplayMode === 'screensaver_only'
-      ? rawDisplayMode
-      : DEFAULT_DISPLAY_MODE;
-
-  var screensaverEnabled =
-    data && data.screensaverEnabled !== undefined
-      ? Boolean(data.screensaverEnabled)
-      : DEFAULT_SCREENSAVER_ENABLED;
-
-  var preventScreensaverWhilePlaying =
-    data && data.preventScreensaverWhilePlaying !== undefined
-      ? Boolean(data.preventScreensaverWhilePlaying)
-      : true;
-
-  var idleTimeoutSec = parseInt(data && data.idleTimeoutSec, 10);
-  if (isNaN(idleTimeoutSec) || idleTimeoutSec <= 0) {
-    idleTimeoutSec = DEFAULT_IDLE_TIMEOUT_SEC;
+  // Each Volumio section has its own Save button and sends only its own fields,
+  // so only update the settings that are present in this request.
+  if (data.displayMode !== undefined) {
+    var rawDisplayMode =
+      data.displayMode && data.displayMode.value !== undefined
+        ? data.displayMode.value
+        : data.displayMode;
+    var displayMode =
+      rawDisplayMode === 'full_ui' || rawDisplayMode === 'screensaver_only'
+        ? rawDisplayMode
+        : DEFAULT_DISPLAY_MODE;
+    self.config.set('displayMode', displayMode);
   }
 
-  var rawSelectedClock =
-    data && data.selectedClock && data.selectedClock.value !== undefined
-      ? data.selectedClock.value
-      : data && data.selectedClock;
-  var selectedClock =
-    typeof rawSelectedClock === 'string' && rawSelectedClock.trim()
-      ? rawSelectedClock.trim()
-      : DEFAULT_CLOCK_FILE;
+  if (data.screensaverEnabled !== undefined) {
+    self.config.set('screensaverEnabled', Boolean(data.screensaverEnabled));
+  }
 
-  self.config.set('displayMode', displayMode);
-  self.config.set('screensaverEnabled', screensaverEnabled);
-  self.config.set('preventScreensaverWhilePlaying', preventScreensaverWhilePlaying);
-  self.config.set('idleTimeoutSec', idleTimeoutSec);
-  self.config.set('selectedClock', selectedClock);
+  if (data.preventScreensaverWhilePlaying !== undefined) {
+    self.config.set('preventScreensaverWhilePlaying', Boolean(data.preventScreensaverWhilePlaying));
+  }
+
+  if (data.idleTimeoutSec !== undefined) {
+    var idleTimeoutSec = parseInt(data.idleTimeoutSec, 10);
+    if (isNaN(idleTimeoutSec) || idleTimeoutSec <= 0) {
+      idleTimeoutSec = DEFAULT_IDLE_TIMEOUT_SEC;
+    }
+    self.config.set('idleTimeoutSec', idleTimeoutSec);
+  }
+
+  if (data.selectedClock !== undefined) {
+    var rawSelectedClock =
+      data.selectedClock && data.selectedClock.value !== undefined
+        ? data.selectedClock.value
+        : data.selectedClock;
+    var selectedClock =
+      typeof rawSelectedClock === 'string' && rawSelectedClock.trim()
+        ? rawSelectedClock.trim()
+        : DEFAULT_CLOCK_FILE;
+    self.config.set('selectedClock', selectedClock);
+  }
 
   for (var i = 1; i <= 5; i++) {
     var defPreset = DEFAULT_RADIO_PRESETS[i - 1];
@@ -569,22 +562,32 @@ CoreZoneDisplay.prototype.saveSettings = function (data) {
     }
   }
 
-  self.logInfo(
-    'CoreZoneDisplay: Saved settings -> displayMode=' +
-      displayMode +
-      ', screensaverEnabled=' +
-      screensaverEnabled +
-      ', idleTimeoutSec=' +
-      idleTimeoutSec +
-      ', selectedClock=' +
-      selectedClock
-  );
+  self.logInfo('CoreZoneDisplay: Saved settings -> ' + JSON.stringify(self.getCurrentSettings()));
 
   if (self.commandRouter && typeof self.commandRouter.pushToastMessage === 'function') {
     self.commandRouter.pushToastMessage('success', 'CoreZoneDisplay', 'Settings saved');
   }
 
+  self.notifySettingsChanged();
+
   return libQ.resolve();
+};
+
+/**
+ * Pushes the current settings to every open screen over Volumio's socket
+ * (same approach as volumio-now-playing's 'nowPlayingPushSettings'), so changes
+ * apply immediately without reloading the display. Screens that are not
+ * connected to the socket pick the change up by polling GET /api/config.
+ */
+CoreZoneDisplay.prototype.notifySettingsChanged = function () {
+  var self = this;
+  try {
+    if (self.commandRouter && typeof self.commandRouter.broadcastMessage === 'function') {
+      self.commandRouter.broadcastMessage('pushCoreZoneDisplaySettings', self.getCurrentSettings());
+    }
+  } catch (err) {
+    self.logError('CoreZoneDisplay: broadcast settings error: ' + err.message);
+  }
 };
 
 /**
@@ -859,6 +862,7 @@ CoreZoneDisplay.prototype.onStart = function () {
     self.app.post('/api/config', function (req, res) {
       try {
         var updated = self.updateConfigFromApi(req.body || {});
+        self.notifySettingsChanged();
         res.json({
           status: 'ok',
           config: updated

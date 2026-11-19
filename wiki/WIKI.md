@@ -94,7 +94,15 @@ Volumio → Plugins → Installed → CoreZoneDisplay → Settings. Five section
 How it works in [`index.js`](../index.js):
 
 - `getUIConfig()` loads `UIConfig.json` through Volumio's `i18nJson`, flattens the fields of all sections, and fills in the current values.
-- `saveSettings(data)` updates only the keys present in `data`, then calls `notifySettingsChanged()`.
+- Each section's Save button calls its own handler (`configSaveDisplay`, `configSaveScreensaver`, `configSaveClock`, `configSaveRadio`), and all four go through `saveSettings(data, source)`.
+- `saveSettings()` changes only the keys present in `data`, and:
+  - **rejects bad input** — a wait time that is empty, not a number, or under **5 seconds** shows the error "Wait Before Showing Clock must be a whole number of seconds, at least 5. Nothing was changed." (it used to be silently replaced by 60);
+  - stores each value with `setConfigValue()`, which repairs a wrongly shaped or typed entry;
+  - **checks the file on disk** with `persistConfig()`; the message **"Settings saved successfully"** appears only when the file really holds the new values, otherwise an error toast names the file and the reason;
+  - records the result in `lastSave` (shown by `/api/debug`) and logs it, then calls `notifySettingsChanged()`.
+- All toast texts come from `i18n/strings_en.json` through `getText()`.
+
+Full explanation, the reproduced failure cases and the Pi troubleshooting steps: **[VOLUMIO_PLUGIN_SETTINGS_GUIDE.md](VOLUMIO_PLUGIN_SETTINGS_GUIDE.md)**.
 
 ### 4.2 In-app settings
 
@@ -116,8 +124,8 @@ Modelled on volumio-now-playing's `nowPlayingPushSettings`:
 | Method & path | Purpose |
 | :--- | :--- |
 | `GET /api/config` | Current settings: `displayMode`, `screensaverEnabled`, `preventScreensaverWhilePlaying`, `idleTimeoutSec`, `selectedClock`, `availableClocks`, `radioStations`, `podcastFeeds` |
-| `POST /api/config` | Partial update (JSON body, any of the keys above; `radioStations` as an array of `{name, url}`). Returns `{status, config}` and broadcasts the change. |
-| `GET /api/debug` | Runtime diagnostics for checking a Raspberry Pi install |
+| `POST /api/config` | Partial update (JSON body, any of the keys above; `radioStations` as an array of `{name, url}`). Returns `{status: "ok", config}` and broadcasts the change. If the config file cannot be written it answers **HTTP 500** `{status: "error", message}` instead. An invalid `idleTimeoutSec` is ignored. |
+| `GET /api/debug` | Runtime diagnostics for checking a Raspberry Pi install. `configFile` shows the config file path, whether it exists / is writable / is valid JSON, the wait time in memory and on disk, and the result of the last save. |
 | `GET /api/podcasts/episodes?url=<rss>` | Fetches and parses a podcast RSS feed (latest 10 episodes) |
 | `/clocks/*` | Static files from `submodule/clocks` (404 if the submodule is missing) |
 | `/*` | Static files from `public/`, falling back to `index.html` |
@@ -232,10 +240,10 @@ These checks run on Windows without a Volumio device:
 | Command (from repo root) | What it proves |
 | :--- | :--- |
 | `node win-debug/validate-all.js` | JSON files parse; JavaScript in the plugin and clocks has no syntax errors |
-| `node win-debug/test-volumio-settings.js` | The Volumio settings page works: all `TRANSLATE.*` labels exist, field ids unique, `visibleIf` targets in the same section, select values valid, Save endpoint matches `package.json` name, clock list is scanned; saving each section the way Volumio does keeps the values, leaves other sections alone, shows a success toast, broadcasts to the screens, writes `config.json`, and `/api/config` returns the same values |
+| `node win-debug/test-volumio-settings.js` | The Volumio settings page works: all `TRANSLATE.*` labels exist, field ids unique, `visibleIf` targets in the same section, select values valid, Save endpoint matches `package.json` name, clock list is scanned; saving each section the way Volumio does keeps the values, leaves other sections alone, shows a success toast, broadcasts to the screens, writes `config.json`, and `/api/config` returns the same values. **Plus the "60 → 5" cases:** 5 as a number and as text, survives a restart, a wrongly shaped or typed stored entry is repaired, empty / text / 0 / negative / under-5 input is rejected with an error and changes nothing, an unwritable file produces an error instead of "saved", a corrupt file at start does not block saving, in-app saves, `/api/debug` diagnostics |
 | `node win-debug/check-fonts.js` | All fonts are offline (section 7) |
 
-Last run 2026-11-19: all three pass (25/25 settings checks).
+Last run: all three pass (68 settings checks). The real HTTP server was also exercised end to end on a temporary config copy (`GET/POST /api/config`, `/api/debug`, the display page, the clock hub, and the HTTP 500 on an unwritable file).
 
 Still to confirm on a real Pi (not testable without Volumio + a browser): open the plugin settings, change e.g. **Wait Before Showing Clock**, save, and check that the open display at `http://<pi-ip>:4004` updates within ~5 seconds without a reload.
 

@@ -8,6 +8,7 @@ var http = require('http');
 var https = require('https');
 var urlModule = require('url');
 var childProcess = require('child_process');
+var util = require('util');
 
 var EXPRESS_PORT = 4004;
 
@@ -30,6 +31,7 @@ function getLocalIpAddress() {
 var DEFAULT_DISPLAY_MODE = 'screensaver_only';
 var DEFAULT_CLOCK_FILE = 'MainClockSelector.html';
 var DEFAULT_IDLE_TIMEOUT_SEC = 60;
+var MIN_IDLE_TIMEOUT_SEC = 5;
 var DEFAULT_SCREENSAVER_ENABLED = true;
 
 var DISPLAY_MODE_LABELS = {
@@ -177,6 +179,53 @@ function parseBoolean(val, fallback) {
     return val !== 0;
   }
   return Boolean(val);
+}
+
+/**
+ * Raw key/value store behind v-conf. Real v-conf keeps it in .data, the built-in
+ * stand-in (see createVConf) keeps it in ._data.
+ */
+function getConfigStore(config) {
+  if (!config) {
+    return null;
+  }
+  return config.data || config._data || null;
+}
+
+/**
+ * v-conf stores every setting as { type: 'number', value: 5 }. Anything else (for example a
+ * plain 60 written by hand or by an older version) is silently ignored by v-conf's set().
+ */
+function isTypedEntry(entry) {
+  return Boolean(
+    entry &&
+      typeof entry === 'object' &&
+      !Array.isArray(entry) &&
+      typeof entry.type === 'string' &&
+      entry.value !== undefined
+  );
+}
+
+/**
+ * Plain value of a stored entry, whatever shape it has.
+ */
+function entryValue(entry) {
+  return entry && typeof entry === 'object' && entry.value !== undefined ? entry.value : entry;
+}
+
+/**
+ * Whole seconds (at least MIN_IDLE_TIMEOUT_SEC) from whatever Volumio's number box sent,
+ * or null when the input cannot be used (empty, text, too small).
+ */
+function parseIdleTimeoutSec(raw) {
+  if (raw === undefined || raw === null || typeof raw === 'boolean') {
+    return null;
+  }
+  if (typeof raw === 'string' && !raw.trim()) {
+    return null;
+  }
+  var seconds = Math.round(Number(raw));
+  return isFinite(seconds) && seconds >= MIN_IDLE_TIMEOUT_SEC ? seconds : null;
 }
 
 function CoreZoneDisplay(context) {
@@ -626,86 +675,236 @@ CoreZoneDisplay.prototype.getUIConfig = function () {
 };
 
 /**
- * Saves settings from Volumio's Settings UI or section onSave handlers.
- * Extracts clean values from Volumio select objects and switches.
+ * Looks up a text in i18n/strings_<language>.json, falling back to English and then to the
+ * key itself (same approach as volumio-now-playing). Extra arguments fill %s placeholders.
  */
-CoreZoneDisplay.prototype.saveSettings = function (data) {
+CoreZoneDisplay.prototype.getText = function (key) {
+  var self = this;
+  var values = Array.prototype.slice.call(arguments, 1);
+  var i18nDir = path.join(__dirname, 'i18n');
+  var defaults = {};
+  var strings = {};
+
+  try {
+    defaults = JSON.parse(fs.readFileSync(path.join(i18nDir, 'strings_en.json'), 'utf8'));
+  } catch (err) {
+    defaults = {};
+  }
+
+  try {
+    var lang = null;
+    if (
+      self.commandRouter &&
+      self.commandRouter.sharedVars &&
+      typeof self.commandRouter.sharedVars.get === 'function'
+    ) {
+      lang = self.commandRouter.sharedVars.get('language_code');
+    }
+    lang = String(lang || 'en').replace(/[^A-Za-z_-]/g, '');
+    if (lang && lang !== 'en') {
+      strings = JSON.parse(fs.readFileSync(path.join(i18nDir, 'strings_' + lang + '.json'), 'utf8'));
+    }
+  } catch (err) {
+    strings = {};
+  }
+
+  var text = strings[key] || defaults[key] || key;
+  return values.length ? util.format.apply(util, [text].concat(values)) : text;
+};
+
+/**
+ * Shows a toast message in Volumio's UI.
+ */
+CoreZoneDisplay.prototype.toast = function (type, message) {
+  var self = this;
+  try {
+    if (self.commandRouter && typeof self.commandRouter.pushToastMessage === 'function') {
+      self.commandRouter.pushToastMessage(type, 'CoreZoneDisplay', message);
+    }
+  } catch (err) {
+    self.logError('CoreZoneDisplay: toast error: ' + err.message);
+  }
+};
+
+/**
+ * Stores one value in the plugin config and makes sure it really sticks.
+ * v-conf quietly ignores set() when the stored entry is not shaped like { type, value } and
+ * throws when the stored type does not fit, so such an entry is replaced first.
+ */
+CoreZoneDisplay.prototype.setConfigValue = function (key, value) {
+  var self = this;
+  var type = typeof value === 'number' || typeof value === 'boolean' ? typeof value : 'string';
+  var store = getConfigStore(self.config);
+
+  if (
+    store &&
+    store[key] !== undefined &&
+    (!isTypedEntry(store[key]) || store[key].type !== type)
+  ) {
+    self.logInfo(
+      'CoreZoneDisplay: repairing stored setting "' + key + '" (was ' + JSON.stringify(store[key]) + ')'
+    );
+    store[key] = { type: type, value: value };
+  }
+
+  self.config.set(key, value);
+};
+
+/**
+ * Reads config.json back from disk and checks it holds the expected values.
+ * expected: { key: value }. Returns { ok, error }.
+ */
+CoreZoneDisplay.prototype.verifyConfigOnDisk = function (expected) {
+  var self = this;
+  var file = self.configFilePath;
+  var onDisk;
+
+  try {
+    onDisk = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (err) {
+    return { ok: false, error: 'cannot read ' + file + ' (' + err.message + ')' };
+  }
+  if (!onDisk || typeof onDisk !== 'object') {
+    return { ok: false, error: file + ' does not contain a settings object' };
+  }
+
+  var wrong = Object.keys(expected || {}).filter(function (key) {
+    return String(entryValue(onDisk[key])) !== String(expected[key]);
+  });
+  return wrong.length
+    ? { ok: false, error: 'the file does not contain the new value of ' + wrong.join(', ') }
+    : { ok: true };
+};
+
+/**
+ * Writes the config to disk and verifies the result.
+ * v-conf's own save() only prints write errors to the console, so the file is read back;
+ * if it is not right the file is written directly, which also reveals the real error.
+ * Returns { ok, file, error }.
+ */
+CoreZoneDisplay.prototype.persistConfig = function (expected) {
+  var self = this;
+  var file = self.configFilePath;
+
+  try {
+    if (typeof self.config.save === 'function') {
+      self.config.save();
+    }
+  } catch (err) {
+    self.logError('CoreZoneDisplay: config.save() error: ' + err.message);
+  }
+
+  var result = self.verifyConfigOnDisk(expected);
+
+  if (!result.ok) {
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, JSON.stringify(getConfigStore(self.config) || {}, null, 2), 'utf8');
+    } catch (err) {
+      return { ok: false, file: file, error: err.message };
+    }
+    result = self.verifyConfigOnDisk(expected);
+  }
+
+  return { ok: result.ok, file: file, error: result.ok ? null : result.error };
+};
+
+/**
+ * Saves settings sent by one of Volumio's section Save buttons (see the configSave* methods).
+ * - Only the settings present in the request change (each section sends only its own fields).
+ * - Invalid input is rejected with an error message and nothing is changed.
+ * - The result is checked on disk, so "Settings saved" is only shown when it really is saved.
+ */
+CoreZoneDisplay.prototype.saveSettings = function (data, source) {
   var self = this;
   self.ensureConfigLoaded();
-  var cleanData = parseConfigSaveData(data || {});
+  source = source || 'saveSettings';
+  self.logInfo('CoreZoneDisplay: ' + source + ' received ' + JSON.stringify(data || {}));
 
-  // Each Volumio section has its own Save button and sends only its own fields,
-  // so only update the settings that are present in this request.
+  var cleanData = parseConfigSaveData(data || {});
+  var changes = {};
+
   if (cleanData.displayMode !== undefined) {
-    var rawDisplayMode = cleanData.displayMode;
-    var displayMode =
-      rawDisplayMode === 'full_ui' || rawDisplayMode === 'screensaver_only'
-        ? rawDisplayMode
+    changes.displayMode =
+      cleanData.displayMode === 'full_ui' || cleanData.displayMode === 'screensaver_only'
+        ? cleanData.displayMode
         : DEFAULT_DISPLAY_MODE;
-    self.config.set('displayMode', displayMode);
   }
 
   if (cleanData.screensaverEnabled !== undefined) {
-    self.config.set(
-      'screensaverEnabled',
-      parseBoolean(cleanData.screensaverEnabled, DEFAULT_SCREENSAVER_ENABLED)
+    changes.screensaverEnabled = parseBoolean(
+      cleanData.screensaverEnabled,
+      DEFAULT_SCREENSAVER_ENABLED
     );
   }
 
   if (cleanData.preventScreensaverWhilePlaying !== undefined) {
-    self.config.set(
-      'preventScreensaverWhilePlaying',
-      parseBoolean(cleanData.preventScreensaverWhilePlaying, true)
+    changes.preventScreensaverWhilePlaying = parseBoolean(
+      cleanData.preventScreensaverWhilePlaying,
+      true
     );
   }
 
   if (cleanData.idleTimeoutSec !== undefined) {
-    var idleTimeoutSec = parseInt(cleanData.idleTimeoutSec, 10);
-    if (isNaN(idleTimeoutSec) || idleTimeoutSec <= 0) {
-      idleTimeoutSec = DEFAULT_IDLE_TIMEOUT_SEC;
+    var idleTimeoutSec = parseIdleTimeoutSec(cleanData.idleTimeoutSec);
+    if (idleTimeoutSec === null) {
+      self.logError(
+        'CoreZoneDisplay: ' + source + ' rejected wait time ' + JSON.stringify(cleanData.idleTimeoutSec)
+      );
+      self.toast('error', self.getText('ERR_IDLE_TIMEOUT', MIN_IDLE_TIMEOUT_SEC));
+      return libQ.resolve();
     }
-    self.config.set('idleTimeoutSec', idleTimeoutSec);
+    changes.idleTimeoutSec = idleTimeoutSec;
   }
 
   if (cleanData.selectedClock !== undefined) {
-    var selectedClock =
+    changes.selectedClock =
       typeof cleanData.selectedClock === 'string' && cleanData.selectedClock.trim()
         ? cleanData.selectedClock.trim()
         : DEFAULT_CLOCK_FILE;
-    self.config.set('selectedClock', selectedClock);
   }
 
   for (var i = 1; i <= 5; i++) {
     var defPreset = DEFAULT_RADIO_PRESETS[i - 1];
     if (cleanData['radio' + i + 'Name'] !== undefined) {
-      var rName = String(cleanData['radio' + i + 'Name'] || '').trim() || defPreset.name;
-      self.config.set('radio' + i + 'Name', rName);
+      changes['radio' + i + 'Name'] =
+        String(cleanData['radio' + i + 'Name'] || '').trim() || defPreset.name;
     }
     if (cleanData['radio' + i + 'Url'] !== undefined) {
-      var rUrl = String(cleanData['radio' + i + 'Url'] || '').trim() || defPreset.url;
-      self.config.set('radio' + i + 'Url', rUrl);
+      changes['radio' + i + 'Url'] =
+        String(cleanData['radio' + i + 'Url'] || '').trim() || defPreset.url;
     }
   }
 
-  // Force synchronous write to disk immediately (do not wait for 1000ms scheduleSave)
-  if (typeof self.config.save === 'function') {
-    try {
-      self.config.save();
-    } catch (saveErr) {
-      self.logError('CoreZoneDisplay: config.save() error: ' + saveErr.message);
-    }
-  }
+  Object.keys(changes).forEach(function (key) {
+    self.setConfigValue(key, changes[key]);
+  });
 
-  self.logInfo('CoreZoneDisplay: Saved settings -> ' + JSON.stringify(self.getCurrentSettings()));
+  var result = self.persistConfig(changes);
+  self.lastSave = {
+    at: new Date().toISOString(),
+    source: source,
+    ok: result.ok,
+    error: result.error,
+    changes: changes
+  };
 
-  if (self.commandRouter && typeof self.commandRouter.pushToastMessage === 'function') {
-    self.commandRouter.pushToastMessage('success', 'CoreZoneDisplay', 'Settings saved');
+  if (result.ok) {
+    self.logInfo(
+      'CoreZoneDisplay: ' + source + ' saved to ' + result.file + ' -> ' + JSON.stringify(changes)
+    );
+    self.toast('success', self.getText('SETTINGS_SAVED'));
+  } else {
+    self.logError(
+      'CoreZoneDisplay: ' + source + ' could NOT save to ' + result.file + ': ' + result.error
+    );
+    self.toast('error', self.getText('ERR_SAVE_FAILED', result.file, result.error));
   }
 
   // Broadcast settings to active player screens
   self.notifySettingsChanged();
 
-  // Push updated UIConfig back to Volumio UI so form refreshes cleanly
+  // Push updated UIConfig back to Volumio UI so the form shows the stored values
   self.refreshUIConfig();
 
   return libQ.resolve();
@@ -716,19 +915,19 @@ CoreZoneDisplay.prototype.saveSettings = function (data) {
  * (Matches volumio-now-playing's configSave* architecture)
  */
 CoreZoneDisplay.prototype.configSaveDisplay = function (data) {
-  return this.saveSettings(data);
+  return this.saveSettings(data, 'configSaveDisplay');
 };
 
 CoreZoneDisplay.prototype.configSaveScreensaver = function (data) {
-  return this.saveSettings(data);
+  return this.saveSettings(data, 'configSaveScreensaver');
 };
 
 CoreZoneDisplay.prototype.configSaveClock = function (data) {
-  return this.saveSettings(data);
+  return this.saveSettings(data, 'configSaveClock');
 };
 
 CoreZoneDisplay.prototype.configSaveRadio = function (data) {
-  return this.saveSettings(data);
+  return this.saveSettings(data, 'configSaveRadio');
 };
 
 /**
@@ -775,59 +974,59 @@ CoreZoneDisplay.prototype.notifySettingsChanged = function () {
 };
 
 /**
- * Updates configuration from POST /api/config (In-App Settings)
+ * Applies a settings update coming from POST /api/config (in-app Settings).
+ * Returns { settings, save } where save tells whether the change reached the disk.
  */
-CoreZoneDisplay.prototype.updateConfigFromApi = function (payload) {
+CoreZoneDisplay.prototype.applyApiUpdate = function (payload) {
   var self = this;
   self.ensureConfigLoaded();
 
+  var save = { ok: true, file: self.configFilePath, error: null };
+
   if (!payload || typeof payload !== 'object') {
-    return self.getCurrentSettings();
+    return { settings: self.getCurrentSettings(), save: save };
   }
 
+  var changes = {};
+
   if (payload.displayMode !== undefined) {
-    var mode =
+    changes.displayMode =
       payload.displayMode === 'full_ui' || payload.displayMode === 'screensaver_only'
         ? payload.displayMode
         : DEFAULT_DISPLAY_MODE;
-    self.config.set('displayMode', mode);
   }
 
   if (payload.screensaverEnabled !== undefined) {
-    self.config.set('screensaverEnabled', Boolean(payload.screensaverEnabled));
+    changes.screensaverEnabled = Boolean(payload.screensaverEnabled);
   }
 
   if (payload.preventScreensaverWhilePlaying !== undefined) {
-    self.config.set('preventScreensaverWhilePlaying', Boolean(payload.preventScreensaverWhilePlaying));
+    changes.preventScreensaverWhilePlaying = Boolean(payload.preventScreensaverWhilePlaying);
   }
 
   if (payload.idleTimeoutSec !== undefined) {
-    var parsedSec = parseInt(payload.idleTimeoutSec, 10);
-    if (!isNaN(parsedSec) && parsedSec > 0) {
-      self.config.set('idleTimeoutSec', parsedSec);
+    var parsedSec = parseIdleTimeoutSec(payload.idleTimeoutSec);
+    if (parsedSec !== null) {
+      changes.idleTimeoutSec = parsedSec;
     }
   }
 
   if (payload.selectedClock !== undefined) {
-    var clockStr = String(payload.selectedClock || '').trim() || DEFAULT_CLOCK_FILE;
-    self.config.set('selectedClock', clockStr);
+    changes.selectedClock = String(payload.selectedClock || '').trim() || DEFAULT_CLOCK_FILE;
   }
 
   if (Array.isArray(payload.radioStations)) {
     for (var i = 0; i < 5; i++) {
       var defaultPreset = DEFAULT_RADIO_PRESETS[i];
       var item = payload.radioStations[i];
-      var nameVal =
+      changes['radio' + (i + 1) + 'Name'] =
         item && typeof item.name === 'string' && item.name.trim()
           ? item.name.trim()
           : defaultPreset.name;
-      var urlVal =
+      changes['radio' + (i + 1) + 'Url'] =
         item && typeof (item.url || item.uri) === 'string' && String(item.url || item.uri).trim()
           ? String(item.url || item.uri).trim()
           : defaultPreset.url;
-
-      self.config.set('radio' + (i + 1) + 'Name', nameVal);
-      self.config.set('radio' + (i + 1) + 'Url', urlVal);
     }
   }
 
@@ -842,19 +1041,35 @@ CoreZoneDisplay.prototype.updateConfigFromApi = function (payload) {
       .filter(function (f) {
         return Boolean(f.rssUrl);
       });
-    self.config.set('podcastFeedsJson', JSON.stringify(sanitizedFeeds));
+    changes.podcastFeedsJson = JSON.stringify(sanitizedFeeds);
   }
 
-  // Force synchronous write to disk immediately
-  if (typeof self.config.save === 'function') {
-    try {
-      self.config.save();
-    } catch (saveErr) {
-      self.logError('CoreZoneDisplay: config.save() error: ' + saveErr.message);
+  if (Object.keys(changes).length) {
+    Object.keys(changes).forEach(function (key) {
+      self.setConfigValue(key, changes[key]);
+    });
+
+    save = self.persistConfig(changes);
+    self.lastSave = {
+      at: new Date().toISOString(),
+      source: 'POST /api/config',
+      ok: save.ok,
+      error: save.error,
+      changes: changes
+    };
+    if (!save.ok) {
+      self.logError('CoreZoneDisplay: POST /api/config could NOT save to ' + save.file + ': ' + save.error);
     }
   }
 
-  return self.getCurrentSettings();
+  return { settings: self.getCurrentSettings(), save: save };
+};
+
+/**
+ * Updates configuration from POST /api/config (In-App Settings). Returns the current settings.
+ */
+CoreZoneDisplay.prototype.updateConfigFromApi = function (payload) {
+  return this.applyApiUpdate(payload).settings;
 };
 
 /**
@@ -880,8 +1095,59 @@ CoreZoneDisplay.prototype.getDebugDiagnostics = function () {
     clocksDir: clocksDir,
     clocksDirExists: clocksDirExists,
     filesInClocksDir: filesInClocksDir,
-    currentConfig: self.getCurrentSettings()
+    currentConfig: self.getCurrentSettings(),
+    configFile: self.getConfigDiagnostics()
   };
+};
+
+/**
+ * Where the settings are stored and whether they can be saved - shown by GET /api/debug
+ * so a failing save on the device can be explained without guessing.
+ */
+CoreZoneDisplay.prototype.getConfigDiagnostics = function () {
+  var self = this;
+  var file = self.configFilePath || null;
+  var info = {
+    file: file,
+    store: self.config && self.config._data ? 'built-in fallback' : 'v-conf',
+    exists: false,
+    writable: false,
+    validJson: false,
+    idleTimeoutSecInMemory: null,
+    idleTimeoutSecOnDisk: null,
+    lastSave: self.lastSave || null
+  };
+
+  try {
+    if (self.config) {
+      info.idleTimeoutSecInMemory = self.config.get('idleTimeoutSec');
+    }
+  } catch (err) {
+    info.idleTimeoutSecInMemory = 'error: ' + err.message;
+  }
+
+  if (file) {
+    try {
+      info.exists = fs.existsSync(file);
+    } catch (err) {
+      // leave false
+    }
+    try {
+      fs.accessSync(file, fs.constants.W_OK);
+      info.writable = true;
+    } catch (err) {
+      info.writeError = err.code || err.message;
+    }
+    try {
+      var parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+      info.validJson = true;
+      info.idleTimeoutSecOnDisk = entryValue(parsed.idleTimeoutSec);
+    } catch (err) {
+      // leave defaults
+    }
+  }
+
+  return info;
 };
 
 /**
@@ -1054,12 +1320,19 @@ CoreZoneDisplay.prototype.onStart = function () {
     // POST /api/config -> Saves updated settings
     self.app.post('/api/config', function (req, res) {
       try {
-        var updated = self.updateConfigFromApi(req.body || {});
+        var applied = self.applyApiUpdate(req.body || {});
         self.notifySettingsChanged();
         self.refreshUIConfig();
+        if (!applied.save.ok) {
+          return res.status(500).json({
+            status: 'error',
+            message: 'Could not save settings: ' + applied.save.error,
+            config: applied.settings
+          });
+        }
         res.json({
           status: 'ok',
-          config: updated
+          config: applied.settings
         });
       } catch (err) {
         self.logError('CoreZoneDisplay: POST /api/config error: ' + err.message);

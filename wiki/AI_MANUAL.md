@@ -23,6 +23,7 @@
 5. **Per-model storage.** Casio alignment/inset are stored per model key (`casio_align_<model>`, `casio_inset_<model>`).
 6. **Settings page structure.** One Volumio section per topic, each with its own Save button, plain-language labels — no "Setting 1/2/3" wording and no open/close switch hacks. `saveSettings()` must update **only the keys it receives**, because each section sends only its own fields.
 7. **Every saveable field must be in its section's `saveButton.data`**, or Volumio will never send it (this bug happened with `preventScreensaverWhilePlaying`).
+7a. **Never say "saved" unless it is.** In a save handler: validate first and, on bad input, show an error toast, change nothing and return (never silently fall back to a default); store with `setConfigValue()`; confirm with `persistConfig()`; show success only if it returned `ok`, otherwise an error toast with the file and reason. Never call `self.config.set()` directly in a handler, and never rely on v-conf's own `save()` — it hides write errors. Toast texts go in `i18n/strings_en.json` and are read with `getText()`. Why and how: [VOLUMIO_PLUGIN_SETTINGS_GUIDE.md](VOLUMIO_PLUGIN_SETTINGS_GUIDE.md).
 8. **Settings must reach the open screen without a reload.** After saving, call `notifySettingsChanged()` on the server; on the display use `applyConfigIfChanged()` (not `applyConfigObject()` directly) so the 5-second poll doesn't disturb the user.
 9. **Submodule git order.** Commit and push inside `submodule/clocks` first, then `git add submodule/clocks` and commit in the parent. Check `git status` inside the submodule — it is often on a detached HEAD; put work on `main` before pushing.
 10. **Ask before pushing, deleting files or other hard-to-undo actions.**
@@ -33,7 +34,8 @@
 
 | Task | Files |
 | :--- | :--- |
-| Add/rename a Volumio setting | `UIConfig.json` (field + section `saveButton.data`), `i18n/strings_en.json` (label + doc), `index.js` → `getUIConfig()` (fill value), `saveSettings()` (save it), `getCurrentSettings()` (read with default), `updateConfigFromApi()` (in-app save) |
+| Add/rename a Volumio setting | `UIConfig.json` (field + section `saveButton.data`), `i18n/strings_en.json` (label + doc + error text), `index.js` → `getUIConfig()` (fill value), `saveSettings()` (validate + save it), `getCurrentSettings()` (read with default), `applyApiUpdate()` (in-app save). Checklist: [VOLUMIO_PLUGIN_SETTINGS_GUIDE.md §7](VOLUMIO_PLUGIN_SETTINGS_GUIDE.md#7-adding-a-setting--checklist) |
+| A setting does not save / reverts | [VOLUMIO_PLUGIN_SETTINGS_GUIDE.md §6](VOLUMIO_PLUGIN_SETTINGS_GUIDE.md#6-when-a-setting-does-not-save--checklist-for-the-pi): `GET /api/debug` → `configFile`, log lines `received` / `saved to` / `could NOT save` |
 | Same setting in the in-app Settings view | `public/index.html` (`#view-settings`), `public/app.js` → `populateSettingsForm()`, `handleSaveSettingsFromView()`, `applyConfigObject()` |
 | Idle clock behaviour | `public/app.js` → `resetIdleTimer()`, `showScreensaver()`, `hideScreensaver()`, `handlePushState()` (wake on play/stop) |
 | Display mode switching | `public/app.js` → `applyDisplayMode()` |
@@ -52,7 +54,7 @@
 
 1. Add the field to the right section's `content` in `UIConfig.json` and its id to that section's `saveButton.data`.
 2. Add `LABEL` and `LABEL_DOC` strings in `i18n/strings_en.json` (clear words, no "Setting N").
-3. `index.js`: default constant → `getCurrentSettings()`; fill value in `getUIConfig()`; `if (data.x !== undefined)` block in `saveSettings()`; same in `updateConfigFromApi()`.
+3. `index.js`: default constant → `getCurrentSettings()`; fill value in `getUIConfig()`; in `saveSettings()` an `if (cleanData.x !== undefined)` block that validates (error toast + `return` on bad input) and puts the value into `changes`; the same in `applyApiUpdate()`. Do not call `self.config.set()` yourself — `saveSettings()` stores `changes` with `setConfigValue()` and checks the file with `persistConfig()`.
 4. `public/app.js`: read it in `applyConfigObject()`; add to the in-app form if needed.
 5. Run the checks in section 5.
 
@@ -106,7 +108,7 @@ node win-debug/test-volumio-settings.js   # simulated Volumio settings page: tra
 node win-debug/check-fonts.js             # offline font audit (must print ALL FONTS STANDALONE)
 ```
 
-`test-volumio-settings.js` builds the plugin with a mock `coreCommand` (`pluginManager.getConfigurationFile`, `i18nJson`, `pushToastMessage`, `broadcastMessage`) on a temp copy of `config.json`. Extend it when you add a setting. Note: `getUIConfig()` returns a **kew** promise — use `.then`/`.fail`, or wrap it in a native `Promise`.
+`test-volumio-settings.js` builds the plugin with a mock `coreCommand` (`pluginManager.getConfigurationFile`, `i18nJson`, `pushToastMessage`, `broadcastMessage`) on a temp copy of `config.json`. Its second half (`robustnessChecks()`, built with `makeRig()`) covers the ways a save can silently fail: wrong-shaped or wrong-typed stored entry, bad input, unwritable file, corrupt file, restart, in-app path, `/api/debug`. Extend it when you add a setting. Note: `getUIConfig()` returns a **kew** promise — use `.then`/`.fail`, or wrap it in a native `Promise`. A read-only file is simulated with `chmod 444`; on Windows that makes the write fail, on Linux as a normal user the plugin's direct write may still succeed — the test only requires that the message matches what is on disk.
 
 No Volumio device is reachable from the dev PC (`volumio.local` does not answer), so final confirmation of settings and live updates must be done by the user on the Pi.
 
@@ -125,6 +127,7 @@ No Volumio device is reachable from the dev PC (`volumio.local` does not answer)
 
 ## 7. Recent Work Log
 
+- **2026-11-20** — "60 → 5 does not save" on the Volumio page. Studied volumio-now-playing and reproduced four silent-failure cases (wrong-shaped entry, invalid input reset to 60, unwritable file, corrupt file) — all showed "Settings saved". Fixed in `index.js`: `setConfigValue()`, `persistConfig()` (reads the file back), validation with error toast (`ERR_IDLE_TIMEOUT`, minimum 5 s), real error toast on write failure (`ERR_SAVE_FAILED`), texts from `i18n` via `getText()`, `lastSave` + `configFile` diagnostics in `/api/debug`, `POST /api/config` answers 500 when it cannot save. Tests: 68 checks in `win-debug/test-volumio-settings.js`; real HTTP server tested end to end. New wiki page: `VOLUMIO_PLUGIN_SETTINGS_GUIDE.md`. **Not verified on a real Volumio device.** Quick check there: the success toast now reads "Settings saved successfully" (old code: "Settings saved").
 - **2026-11-19** — Verification: added `win-debug/test-volumio-settings.js` (25 checks, all pass) and `win-debug/check-fonts.js` (all fonts offline). Wiki rebuilt in `wiki/` with relative links.
 - **2026-11-19** — Volumio settings page rebuilt into 5 clear sections (Display Mode, Idle Clock, Clock Face, Favorite Radio Stations, Web Addresses); per-section partial saves; `preventScreensaverWhilePlaying` now saved; Web Addresses show the real device IP.
 - **2026-11-19** — Live settings sync: server broadcast `pushCoreZoneDisplaySettings` + 5 s `/api/config` poll + `applyConfigIfChanged()`.

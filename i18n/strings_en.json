@@ -9,6 +9,7 @@
   "DISPLAY_MODE_SCREENSAVER_ONLY": "Clock Only",
   "DISPLAY_MODE_FULL_UI": "Player Menu + Clock When Idle",
   "SETTINGS_SAVED": "Settings saved successfully",
+  "ERR_SAVE_FAILED": "Could not save the settings to %s (%s). The change will be lost when Volumio restarts.",
 
   "SECTION_SCREENSAVER": "Idle Clock (Screensaver)",
   "SECTION_SCREENSAVER_DESC": "When to switch from the player menu to the clock. Used only in 'Player Menu + Clock When Idle' mode.",
@@ -17,7 +18,8 @@
   "PREVENT_SCREENSAVER_PLAYING": "Not While Music Is Playing",
   "PREVENT_SCREENSAVER_PLAYING_DOC": "Keep the Now Playing screen (album art and controls) while music plays. The clock appears only after playback is paused or stopped.",
   "IDLE_TIMEOUT_SEC": "Wait Before Showing Clock (seconds)",
-  "IDLE_TIMEOUT_DOC": "How many seconds without activity before the clock appears.",
+  "IDLE_TIMEOUT_DOC": "How many seconds without activity before the clock appears (whole seconds, at least 5). Used only in 'Player Menu + Clock When Idle' mode.",
+  "ERR_IDLE_TIMEOUT": "Wait Before Showing Clock must be a whole number of seconds, at least %s. Nothing was changed.",
 
   "SECTION_CLOCK": "Clock Face",
   "SECTION_CLOCK_DESC": "Which clock design to display.",

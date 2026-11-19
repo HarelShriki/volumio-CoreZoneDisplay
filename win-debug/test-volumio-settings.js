@@ -66,6 +66,138 @@ p.onVolumioStart && p.onVolumioStart();
 const getUI = () => new Promise((res, rej) => p.getUIConfig().then(res).fail(rej));
 const field = (ui, id) => ui.sections.flatMap((s) => s.content).find((c) => c.id === id);
 
+// ---------------------------------------------------------------------------
+// Robustness rig: a fresh plugin instance on its own config file, so that the
+// ways "60 -> 5" can fail to stick are tested for real (see wiki/VOLUMIO_PLUGIN_SETTINGS_GUIDE.md).
+// ---------------------------------------------------------------------------
+const extraDirs = [];
+function makeRig(configText, opts = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'czd-r-'));
+  extraDirs.push(dir);
+  const file = path.join(dir, 'config.json');
+  fs.writeFileSync(file, configText);
+  if (opts.readOnly) fs.chmodSync(file, 0o444);
+  const rig = { dir, file, toasts: [], broadcasts: [] };
+  const rigRouter = {
+    pluginManager: { getConfigurationFile: () => file },
+    pushToastMessage: (type, title, msg) => rig.toasts.push({ type, msg }),
+    broadcastMessage: (m, d) => rig.broadcasts.push({ m, d }),
+    getUIConfigOnPlugin: () => libQ.resolve({}),
+    sharedVars: { get: () => 'en' },
+    i18nJson
+  };
+  rig.plugin = new Plugin({ coreCommand: rigRouter, logger: { info() {}, error() {}, warn() {} } });
+  rig.plugin.onVolumioStart();
+  rig.idle = () => rig.plugin.getCurrentSettings().idleTimeoutSec;
+  rig.disk = (key) => {
+    const j = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return j[key];
+  };
+  rig.saveIdle = (value) =>
+    rig.plugin.configSaveScreensaver({ screensaverEnabled: true, preventScreensaverWhilePlaying: true, idleTimeoutSec: value });
+  rig.lastToast = () => rig.toasts[rig.toasts.length - 1] || { type: 'none', msg: '' };
+  return rig;
+}
+
+function robustnessChecks() {
+  const typedDefaults = fs.readFileSync(path.join(root, 'config.json'), 'utf8');
+  const strings = JSON.parse(fs.readFileSync(path.join(root, 'i18n/strings_en.json'), 'utf8'));
+  console.log('\n  --- 60 -> 5 and other ways saving can fail ---');
+
+  // 1. The reported case: 60 -> 5, as a number and as the text Volumio may send
+  [5, '5'].forEach((value) => {
+    const r = makeRig(typedDefaults);
+    check('start value is 60', r.idle() === 60);
+    r.saveIdle(value);
+    check(`60 -> ${JSON.stringify(value)} is kept in memory`, r.idle() === 5);
+    check(`60 -> ${JSON.stringify(value)} is written to disk as a number entry`, r.disk('idleTimeoutSec').value === 5 && r.disk('idleTimeoutSec').type === 'number');
+    check(`60 -> ${JSON.stringify(value)} shows the success message`, r.lastToast().type === 'success' && r.lastToast().msg === strings.SETTINGS_SAVED);
+  });
+
+  // 2. Survives a Volumio restart (a new plugin instance reads the same file)
+  let r = makeRig(typedDefaults);
+  r.saveIdle(5);
+  const restarted = new Plugin({
+    coreCommand: { pluginManager: { getConfigurationFile: () => r.file }, pushToastMessage() {}, broadcastMessage() {}, sharedVars: { get: () => 'en' }, i18nJson },
+    logger: { info() {}, error() {}, warn() {} }
+  });
+  restarted.onVolumioStart();
+  check('5 survives a restart (new instance reads the file)', restarted.getCurrentSettings().idleTimeoutSec === 5);
+
+  // 3. Stored entry in the wrong shape: v-conf alone silently ignores the new value
+  const flat = JSON.parse(typedDefaults);
+  flat.idleTimeoutSec = 60;
+  r = makeRig(JSON.stringify(flat));
+  r.saveIdle(5);
+  check('plain stored number (wrong shape) is repaired and 5 sticks', r.idle() === 5 && r.disk('idleTimeoutSec').value === 5);
+
+  const wrongType = JSON.parse(typedDefaults);
+  wrongType.idleTimeoutSec = { type: 'string', value: '60' };
+  r = makeRig(JSON.stringify(wrongType));
+  r.saveIdle(5);
+  check('entry stored with the wrong type is replaced by a number entry', r.idle() === 5 && r.disk('idleTimeoutSec').type === 'number' && r.disk('idleTimeoutSec').value === 5);
+
+  // 4. Bad input must be rejected with a clear message and change nothing (it used to reset to 60)
+  ['', '   ', 'abc', 0, -3, 4, null, true].forEach((bad) => {
+    r = makeRig(typedDefaults);
+    r.saveIdle(5);
+    const before = r.broadcasts.length;
+    r.saveIdle(bad);
+    const expectedMsg = strings.ERR_IDLE_TIMEOUT.replace('%s', '5');
+    check(`rejects ${JSON.stringify(bad)} with an error message, keeps 5`,
+      r.lastToast().type === 'error' && r.lastToast().msg === expectedMsg && r.idle() === 5 && r.disk('idleTimeoutSec').value === 5 && r.broadcasts.length === before);
+  });
+  r = makeRig(typedDefaults);
+  r.saveIdle('5.4');
+  check('"5.4" is rounded to 5 seconds', r.idle() === 5);
+  r.saveIdle(120);
+  check('large values are fine (120)', r.idle() === 120);
+
+  // 5. Unwritable config file: never say "saved" when the file does not hold the value
+  r = makeRig(typedDefaults, { readOnly: true });
+  r.saveIdle(5);
+  let onDisk;
+  try { onDisk = r.disk('idleTimeoutSec').value; } catch (e) { onDisk = 'unreadable'; }
+  const toast = r.lastToast();
+  check('success message only when the file really holds the value', toast.type === 'success' ? onDisk === 5 : (toast.type === 'error' && onDisk !== 5));
+  console.log('  (read-only config file on this OS -> ' + toast.type + ' message; file holds ' + onDisk + ')');
+  if (toast.type === 'error') {
+    check('write failure is reported with the file path and reason', toast.msg.includes(r.file) && /could not save/i.test(toast.msg));
+    check('write failure is recorded for /api/debug', r.plugin.getDebugDiagnostics().configFile.lastSave.ok === false);
+  }
+
+  // 6. A corrupt config file at start (e.g. power cut while writing) must not block saving
+  r = makeRig('{"displayMode": {"type":"string","val');
+  check('corrupt file at start falls back to the default 60', r.idle() === 60);
+  r.saveIdle(5);
+  check('saving 5 after a corrupt start works and is on disk', r.idle() === 5 && r.disk('idleTimeoutSec').value === 5);
+
+  // 7. In-app (POST /api/config) path: same checks, and reports failure
+  r = makeRig(typedDefaults);
+  let applied = r.plugin.applyApiUpdate({ idleTimeoutSec: 7 });
+  check('in-app save of 7 is on disk and reported ok', applied.save.ok === true && r.disk('idleTimeoutSec').value === 7 && applied.settings.idleTimeoutSec === 7);
+  applied = r.plugin.applyApiUpdate({ idleTimeoutSec: 'abc' });
+  check('in-app invalid wait time is ignored (keeps 7)', applied.settings.idleTimeoutSec === 7);
+
+  // 8. Diagnostics for GET /api/debug
+  r = makeRig(typedDefaults);
+  r.saveIdle(5);
+  const diag = r.plugin.getDebugDiagnostics().configFile;
+  check('/api/debug shows the config file, memory value and disk value', diag.file === r.file && diag.exists && diag.validJson && diag.idleTimeoutSecInMemory === 5 && diag.idleTimeoutSecOnDisk === 5);
+  check('/api/debug shows the last save', diag.lastSave && diag.lastSave.ok === true && diag.lastSave.source === 'configSaveScreensaver' && diag.lastSave.changes.idleTimeoutSec === 5);
+
+  // 9. Every save entry point is named in the log/lastSave
+  const names = ['configSaveDisplay', 'configSaveScreensaver', 'configSaveClock', 'configSaveRadio'];
+  r = makeRig(typedDefaults);
+  r.plugin.configSaveDisplay({ displayMode: { value: 'full_ui', label: 'x' } });
+  check('configSaveDisplay is recorded', r.plugin.lastSave.source === 'configSaveDisplay');
+  r.plugin.configSaveClock({ selectedClock: { value: 'digital/index.html', label: 'x' } });
+  check('configSaveClock is recorded', r.plugin.lastSave.source === 'configSaveClock');
+  r.plugin.configSaveRadio({ radio2Name: 'Test FM', radio2Url: 'http://example.invalid/x' });
+  check('configSaveRadio is recorded and saved', r.plugin.lastSave.source === 'configSaveRadio' && r.disk('radio2Name').value === 'Test FM');
+  check('all four configSave* handlers exist', names.every((n) => typeof r.plugin[n] === 'function'));
+}
+
 (async () => {
   const ui = await getUI();
   const titles = ui.sections.map((s) => s.label);
@@ -135,9 +267,14 @@ const field = (ui, id) => ui.sections.flatMap((s) => s.content).find((c) => c.id
   // Check immediate disk persistence without waiting for timer
   const onDisk = JSON.parse(fs.readFileSync(cfgFile, 'utf8'));
   check('config written immediately to disk', onDisk.displayMode && onDisk.displayMode.value === 'full_ui', 'idleTimeoutSec on disk = ' + (onDisk.idleTimeoutSec && onDisk.idleTimeoutSec.value));
+
+  robustnessChecks();
 })().catch((e) => { console.error('ERROR', e); fails++; }).finally(() => {
   console.log('\n' + (fails ? fails + ' FAILED' : 'ALL PASSED'));
   process.exitCode = fails ? 1 : 0;
-  try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) {}
+  [tmp].concat(extraDirs).forEach((dir) => {
+    try { fs.chmodSync(path.join(dir, 'config.json'), 0o666); } catch (e) {}
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) {}
+  });
   process.exit(process.exitCode);
 });

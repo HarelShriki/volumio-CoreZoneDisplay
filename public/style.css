@@ -11,8 +11,8 @@
   --border-subtle: rgba(255, 255, 255, 0.09);
   --border-active: rgba(10, 132, 255, 0.65);
   --text-white: #ffffff;
-  --text-secondary: #8e8e93;
-  --text-muted: #5c5c62;
+  --text-secondary: #98989f;
+  --text-muted: #8e8e95;
   --accent-spotify: #1db954;
   --accent-blue: #0a84ff;
   --accent-amber: #ff9f0a;
@@ -22,6 +22,96 @@
   --radius-md: 10px;
   --radius-pill: 999px;
   --touch-min: 64px;
+}
+
+/* ==========================================================================
+   Light Theme System
+   ========================================================================== */
+:root[data-theme="light"],
+body.light-theme {
+  --bg-black: #f8fafc;
+  --bg-card: #ffffff;
+  --bg-card-elevated: #f1f5f9;
+  --bg-card-active: #e2e8f0;
+  --border-subtle: rgba(0, 0, 0, 0.1);
+  --border-active: rgba(10, 132, 255, 0.85);
+  --text-white: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+}
+
+:root[data-theme="light"] .settings-modal-backdrop,
+:root[data-theme="light"] .modal-backdrop {
+  background: rgba(241, 245, 249, 0.88);
+}
+
+:root[data-theme="light"] .settings-modal-shell {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.12);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.12);
+}
+
+:root[data-theme="light"] details.settings-accordion {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+:root[data-theme="light"] details.settings-accordion[open] {
+  border-color: rgba(10, 132, 255, 0.5);
+  background: #ffffff;
+}
+
+:root[data-theme="light"] details.settings-accordion[open] > summary.settings-accordion-summary {
+  background: rgba(10, 132, 255, 0.08);
+  border-block-end-color: rgba(0, 0, 0, 0.08);
+}
+
+:root[data-theme="light"] .settings-accordion-title {
+  color: #0f172a;
+}
+
+:root[data-theme="light"] .settings-accordion-chevron {
+  background: rgba(0, 0, 0, 0.06);
+  color: #334155;
+}
+
+:root[data-theme="light"] .settings-row {
+  border-block-end-color: rgba(0, 0, 0, 0.06);
+}
+
+:root[data-theme="light"] .settings-label {
+  color: #0f172a;
+}
+
+:root[data-theme="light"] input[type="text"],
+:root[data-theme="light"] input[type="number"],
+:root[data-theme="light"] select {
+  background: #ffffff;
+  color: #0f172a;
+  border-color: rgba(0, 0, 0, 0.2);
+}
+
+:root[data-theme="light"] .screensaver-hud {
+  background: rgba(255, 255, 255, 0.92);
+  color: #0f172a;
+  border-color: rgba(0, 0, 0, 0.12);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+}
+
+:root[data-theme="light"] .screensaver-hud-btn {
+  background: rgba(0, 0, 0, 0.06);
+  color: #0f172a;
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+:root[data-theme="light"] .toolbar-btn {
+  background: rgba(0, 0, 0, 0.06);
+  color: #0f172a;
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+:root[data-theme="light"] .toolbar-btn:hover {
+  background: rgba(0, 0, 0, 0.1);
 }
 
 *,
@@ -51,7 +141,7 @@ body {
   overflow: hidden;
   background-color: var(--bg-black);
   color: var(--text-white);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: 'Google Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   touch-action: manipulation;
 }
@@ -471,9 +561,13 @@ select {
 }
 
 .radio-edit-chip {
-  font-size: 0.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  font-size: 0.78rem;
   font-weight: 600;
-  padding: 4px 9px;
+  padding: 6px 12px;
   border-radius: var(--radius-md);
   background-color: var(--bg-card-elevated);
   border: 1px solid var(--border-subtle);
@@ -543,11 +637,15 @@ select {
 }
 
 .help-close-btn {
-  padding: 5px 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 6px 14px;
   border-radius: var(--radius-md);
   background-color: var(--bg-card-elevated);
   border: 1px solid var(--border-subtle);
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   font-weight: 600;
   color: var(--text-secondary);
   cursor: pointer;
@@ -835,63 +933,184 @@ select {
 }
 
 /* ==========================================================================
-   D. In-App Settings View
+   D. In-App Settings View (Collapsible Roll Setting-by-Setting, Close/Open Mode)
    ========================================================================== */
 
 .settings-container {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding-bottom: 20px;
+  gap: 12px;
+  padding-bottom: 24px;
   max-width: 960px;
   margin: 0 auto;
   width: 100%;
 }
 
-.settings-card {
+.settings-top-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 16px;
   background-color: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-xl);
-  padding: 18px 20px;
+}
+
+.settings-top-info {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.settings-mode-badge {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background-color: rgba(10, 132, 255, 0.18);
+  color: var(--accent-blue);
+}
+
+.settings-top-hint {
+  font-size: 0.86rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.settings-top-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Collapsible Setting Accordion Card */
+details.settings-accordion {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  transition: border-color 0.18s ease, background-color 0.18s ease;
+}
+
+details.settings-accordion[open] {
+  border-color: var(--border-active);
+  background-color: #161618;
+}
+
+summary.settings-accordion-summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 62px;
+  padding: 14px 18px;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.15s ease;
+}
+
+summary.settings-accordion-summary::-webkit-details-marker {
+  display: none;
+}
+
+summary.settings-accordion-summary:hover,
+summary.settings-accordion-summary:focus-visible {
+  background-color: var(--bg-card-elevated);
+  outline: none;
+}
+
+details.settings-accordion[open] > summary.settings-accordion-summary {
+  border-bottom: 1px solid var(--border-subtle);
+  background-color: rgba(10, 132, 255, 0.09);
+}
+
+.settings-summary-main {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.settings-summary-title {
+  font-size: 1.04rem;
+  font-weight: 700;
+  color: var(--text-white);
+}
+
+.settings-summary-preview {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--accent-blue);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.settings-summary-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background-color: var(--bg-card-elevated);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  transition: transform 0.2s ease, background-color 0.2s ease, color 0.2s ease;
+}
+
+details.settings-accordion[open] > summary.settings-accordion-summary .settings-summary-chevron {
+  transform: rotate(90deg);
+  background-color: var(--accent-blue);
+  border-color: var(--accent-blue);
+  color: var(--text-white);
+}
+
+.settings-accordion-body {
+  padding: 16px 18px;
   display: flex;
   flex-direction: column;
   gap: 14px;
 }
 
-.settings-card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 12px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.settings-card-title {
-  font-size: 1.12rem;
-  font-weight: 700;
-  color: var(--text-white);
-}
-
 .settings-card-desc {
-  font-size: 0.82rem;
+  font-size: 0.84rem;
   color: var(--text-secondary);
-  margin-top: 2px;
+  line-height: 1.4;
 }
 
 .settings-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 12px 16px;
   min-height: 54px;
+  padding: 10px 12px;
+  background-color: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-lg);
 }
 
 .settings-label-group {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
+  flex: 1 1 220px;
+  min-width: 0;
 }
 
 .settings-label {
@@ -903,6 +1122,18 @@ select {
 .settings-hint {
   font-size: 0.8rem;
   color: var(--text-secondary);
+  line-height: 1.38;
+}
+
+.settings-inline-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings-inline-actions a {
+  text-decoration: none;
 }
 
 .settings-input,
@@ -914,6 +1145,7 @@ select {
   border-radius: var(--radius-md);
   color: var(--text-white);
   font-size: 0.92rem;
+  max-width: 100%;
 }
 
 .settings-input:focus,
@@ -932,6 +1164,7 @@ select {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .stepper-btn {
@@ -996,30 +1229,67 @@ select {
   transform: translateX(24px);
 }
 
-.settings-radio-list {
+.settings-radio-list,
+.settings-podcast-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
-.settings-radio-row {
-  display: grid;
-  grid-template-columns: 82px 1fr 1.6fr;
+/* Nested Collapsible Radio Preset Accordion inside Setting 4 */
+details.radio-preset-accordion {
+  background-color: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+details.radio-preset-accordion[open] {
+  border-color: rgba(10, 132, 255, 0.45);
+  background-color: rgba(255, 255, 255, 0.04);
+}
+
+summary.radio-preset-summary {
+  list-style: none;
+  display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
+  min-height: 48px;
+  padding: 11px 14px;
+  cursor: pointer;
+  user-select: none;
+}
+
+summary.radio-preset-summary::-webkit-details-marker {
+  display: none;
+}
+
+summary.radio-preset-summary:hover {
+  background-color: var(--bg-card-elevated);
+}
+
+.radio-preset-body {
+  padding: 12px 14px;
+  border-top: 1px solid var(--border-subtle);
+  display: grid;
+  grid-template-columns: 1fr 1.6fr auto;
+  gap: 10px;
+  align-items: center;
 }
 
 @media (max-width: 720px) {
-  .settings-radio-row {
+  .radio-preset-body {
     grid-template-columns: 1fr;
-    padding-bottom: 10px;
-    border-bottom: 1px solid var(--border-subtle);
   }
 }
 
 .settings-radio-badge {
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   font-weight: 700;
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  background-color: var(--bg-card-elevated);
   color: var(--text-secondary);
 }
 
@@ -1124,11 +1394,15 @@ select {
 }
 
 .sample-pill-btn {
-  padding: 5px 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 6px 12px;
   border-radius: var(--radius-pill);
   background-color: var(--bg-card);
   border: 1px solid var(--border-subtle);
-  font-size: 0.76rem;
+  font-size: 0.78rem;
   font-weight: 600;
   color: var(--text-white);
   cursor: pointer;
@@ -1648,4 +1922,168 @@ select {
 .screensaver-fallback-note {
   font-size: 0.92rem;
   color: var(--text-secondary);
+}
+
+/* ==========================================================================
+   G. Responsive Small-Screen Adaptations (Phones, Small Touchscreens <= 720px)
+   ========================================================================== */
+
+@media (max-width: 720px) {
+  .top-bar {
+    height: auto;
+    min-height: 54px;
+    padding: 6px 10px;
+    grid-template-columns: 1fr auto;
+    row-gap: 6px;
+  }
+
+  .top-bar-center {
+    display: none;
+  }
+
+  .icon-pill-btn {
+    min-height: 38px;
+    padding: 0 10px;
+    font-size: 0.78rem;
+  }
+
+  .connection-badge {
+    padding: 4px 8px;
+  }
+
+  .connection-text {
+    display: none;
+  }
+
+  .view-container {
+    padding: 10px 10px;
+  }
+
+  .source-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+  }
+
+  .settings-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .settings-label-group {
+    flex: 1 1 auto;
+  }
+
+  .settings-select,
+  .settings-input:not(.settings-input-num) {
+    width: 100%;
+  }
+
+  .save-settings-btn {
+    width: 100%;
+  }
+
+  .np-layout {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+    gap: 14px;
+    padding: 14px;
+  }
+
+  .np-badges,
+  .np-transport {
+    justify-content: center;
+  }
+
+  .bottom-bar {
+    flex: 0 0 auto;
+    height: auto;
+    min-height: 72px;
+    padding: 8px 10px;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+  }
+
+  .bottom-volume {
+    grid-column: 1 / -1;
+    justify-content: space-between;
+    border-top: 1px solid var(--border-subtle);
+    padding-top: 6px;
+  }
+
+  .vol-slider-wrap {
+    max-width: none;
+  }
+
+  .bar-transport-btn,
+  .vol-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .screensaver-controls {
+    top: 8px;
+    right: 8px;
+    left: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .screensaver-hud-btn {
+    min-height: 38px;
+    padding: 6px 12px;
+    font-size: 0.78rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .sleep-btn span {
+    display: none;
+  }
+
+  summary.settings-accordion-summary {
+    padding: 12px 12px;
+    min-height: 54px;
+  }
+
+  .settings-accordion-body {
+    padding: 12px;
+  }
+}
+
+/* ==========================================================================
+   H. Apple HIG Accessibility Media Queries (Motion, Transparency, Contrast)
+   ========================================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .screensaver-hud-btn,
+  .modal-backdrop {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  .screensaver-hud-btn {
+    background-color: #18181b !important;
+  }
+  .modal-backdrop {
+    background-color: rgba(0, 0, 0, 0.92) !important;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --border-subtle: rgba(255, 255, 255, 0.28);
+    --text-secondary: #c7c7cc;
+    --text-muted: #aeaeb2;
+  }
 }

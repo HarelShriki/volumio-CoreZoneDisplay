@@ -251,6 +251,13 @@ CoreZoneDisplay.prototype.getCurrentSettings = function () {
     screensaverEnabled = Boolean(screensaverEnabled);
   }
 
+  var preventScreensaverWhilePlaying = self.config.get('preventScreensaverWhilePlaying');
+  if (preventScreensaverWhilePlaying === undefined || preventScreensaverWhilePlaying === null) {
+    preventScreensaverWhilePlaying = true;
+  } else {
+    preventScreensaverWhilePlaying = Boolean(preventScreensaverWhilePlaying);
+  }
+
   var rawTimeout = self.config.get('idleTimeoutSec');
   var idleTimeoutSec = parseInt(rawTimeout, 10);
   if (isNaN(idleTimeoutSec) || idleTimeoutSec <= 0) {
@@ -310,6 +317,7 @@ CoreZoneDisplay.prototype.getCurrentSettings = function () {
   return {
     displayMode: displayMode,
     screensaverEnabled: screensaverEnabled,
+    preventScreensaverWhilePlaying: preventScreensaverWhilePlaying,
     idleTimeoutSec: idleTimeoutSec,
     selectedClock: selectedClock,
     availableClocks: self.getAvailableClocks(),
@@ -346,6 +354,18 @@ CoreZoneDisplay.prototype.getUIConfig = function () {
     langFile = defaultLangFile;
   }
 
+  function findContentItem(contentArr, itemId) {
+    if (!Array.isArray(contentArr)) {
+      return null;
+    }
+    for (var i = 0; i < contentArr.length; i++) {
+      if (contentArr[i] && contentArr[i].id === itemId) {
+        return contentArr[i];
+      }
+    }
+    return null;
+  }
+
   function populateAndResolve(uiconf) {
     try {
       var settings = self.getCurrentSettings();
@@ -357,32 +377,104 @@ CoreZoneDisplay.prototype.getUIConfig = function () {
 
       var content = uiconf.sections[0].content;
 
-      // 0: displayMode (select)
       var modeLabel =
         DISPLAY_MODE_LABELS[settings.displayMode] ||
         DISPLAY_MODE_LABELS[DEFAULT_DISPLAY_MODE];
-      content[0].value = {
-        value: settings.displayMode,
-        label: modeLabel
-      };
 
-      // 1: screensaverEnabled (switch)
-      content[1].value = Boolean(settings.screensaverEnabled);
+      var open1 = findContentItem(content, 'openSetting1');
+      if (open1) {
+        open1.label = 'Setting 1: Display & Startup Mode (' + modeLabel + ')';
+        open1.value = false;
+      }
 
-      // 2: idleTimeoutSec (number)
-      content[2].value = Number(settings.idleTimeoutSec);
-
-      // 3: selectedClock (select)
-      content[3].options = availableClocks.map(function (clockName) {
-        return {
-          value: clockName,
-          label: clockName
+      var displayModeEl = findContentItem(content, 'displayMode');
+      if (displayModeEl) {
+        displayModeEl.value = {
+          value: settings.displayMode,
+          label: modeLabel
         };
-      });
-      content[3].value = {
-        value: settings.selectedClock,
-        label: settings.selectedClock
-      };
+      }
+
+      var open2 = findContentItem(content, 'openSetting2');
+      if (open2) {
+        var playNotice = settings.preventScreensaverWhilePlaying ? ' · Suppressed on Play' : '';
+        open2.label =
+          'Setting 2: Idle Screensaver & Timeout (' +
+          (settings.screensaverEnabled ? 'Enabled' : 'Disabled') +
+          ' · ' +
+          settings.idleTimeoutSec +
+          's' +
+          playNotice +
+          ')';
+        open2.value = false;
+      }
+
+      var ssEnabledEl = findContentItem(content, 'screensaverEnabled');
+      if (ssEnabledEl) {
+        ssEnabledEl.value = Boolean(settings.screensaverEnabled);
+      }
+
+      var preventEl = findContentItem(content, 'preventScreensaverWhilePlaying');
+      if (preventEl) {
+        preventEl.value = Boolean(settings.preventScreensaverWhilePlaying);
+      }
+
+      var timeoutEl = findContentItem(content, 'idleTimeoutSec');
+      if (timeoutEl) {
+        timeoutEl.value = Number(settings.idleTimeoutSec);
+      }
+
+      var open3 = findContentItem(content, 'openSetting3');
+      if (open3) {
+        open3.label = 'Setting 3: Active Clock Face (' + settings.selectedClock + ')';
+        open3.value = false;
+      }
+
+      var clockEl = findContentItem(content, 'selectedClock');
+      if (clockEl) {
+        clockEl.options = availableClocks.map(function (clockName) {
+          return {
+            value: clockName,
+            label: clockName
+          };
+        });
+        clockEl.value = {
+          value: settings.selectedClock,
+          label: settings.selectedClock
+        };
+      }
+
+      var stationSummaryNames = settings.radioStations
+        .slice(0, 3)
+        .map(function (s) {
+          return s.name;
+        })
+        .join(', ');
+      var open4 = findContentItem(content, 'openSetting4');
+      if (open4) {
+        open4.label =
+          'Setting 4: Favorite Radio Stations (5 Presets: ' + stationSummaryNames + '…)';
+        open4.value = false;
+      }
+
+      for (var r = 1; r <= 5; r++) {
+        var presetObj = settings.radioStations[r - 1] || DEFAULT_RADIO_PRESETS[r - 1];
+        var rNameEl = findContentItem(content, 'radio' + r + 'Name');
+        var rUrlEl = findContentItem(content, 'radio' + r + 'Url');
+        if (rNameEl) {
+          rNameEl.value = presetObj.name;
+        }
+        if (rUrlEl) {
+          rUrlEl.value = presetObj.url;
+        }
+      }
+
+      var open5 = findContentItem(content, 'openSetting5');
+      if (open5) {
+        open5.label =
+          'Setting 5: Web Display & Clock Settings URLs (Port ' + EXPRESS_PORT + ')';
+        open5.value = false;
+      }
 
       defer.resolve(uiconf);
     } catch (err) {
@@ -440,6 +532,11 @@ CoreZoneDisplay.prototype.saveSettings = function (data) {
       ? Boolean(data.screensaverEnabled)
       : DEFAULT_SCREENSAVER_ENABLED;
 
+  var preventScreensaverWhilePlaying =
+    data && data.preventScreensaverWhilePlaying !== undefined
+      ? Boolean(data.preventScreensaverWhilePlaying)
+      : true;
+
   var idleTimeoutSec = parseInt(data && data.idleTimeoutSec, 10);
   if (isNaN(idleTimeoutSec) || idleTimeoutSec <= 0) {
     idleTimeoutSec = DEFAULT_IDLE_TIMEOUT_SEC;
@@ -456,8 +553,21 @@ CoreZoneDisplay.prototype.saveSettings = function (data) {
 
   self.config.set('displayMode', displayMode);
   self.config.set('screensaverEnabled', screensaverEnabled);
+  self.config.set('preventScreensaverWhilePlaying', preventScreensaverWhilePlaying);
   self.config.set('idleTimeoutSec', idleTimeoutSec);
   self.config.set('selectedClock', selectedClock);
+
+  for (var i = 1; i <= 5; i++) {
+    var defPreset = DEFAULT_RADIO_PRESETS[i - 1];
+    if (data && data['radio' + i + 'Name'] !== undefined) {
+      var rName = String(data['radio' + i + 'Name'] || '').trim() || defPreset.name;
+      self.config.set('radio' + i + 'Name', rName);
+    }
+    if (data && data['radio' + i + 'Url'] !== undefined) {
+      var rUrl = String(data['radio' + i + 'Url'] || '').trim() || defPreset.url;
+      self.config.set('radio' + i + 'Url', rUrl);
+    }
+  }
 
   self.logInfo(
     'CoreZoneDisplay: Saved settings -> displayMode=' +
@@ -498,6 +608,10 @@ CoreZoneDisplay.prototype.updateConfigFromApi = function (payload) {
 
   if (payload.screensaverEnabled !== undefined) {
     self.config.set('screensaverEnabled', Boolean(payload.screensaverEnabled));
+  }
+
+  if (payload.preventScreensaverWhilePlaying !== undefined) {
+    self.config.set('preventScreensaverWhilePlaying', Boolean(payload.preventScreensaverWhilePlaying));
   }
 
   if (payload.idleTimeoutSec !== undefined) {

@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="color-scheme" content="dark" />
   <title>CoreZoneDisplay</title>
+  <!-- Local Offline Google Sans Standalone Font -->
+  <link rel="stylesheet" href="fonts/google-sans.css" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -290,83 +292,224 @@
         </div>
       </section>
 
-      <!-- D. In-App Settings View (Scrollable & Synchronized with Volumio v-conf) -->
+      <!-- D. In-App Settings View (Collapsible Roll Setting-by-Setting, Close/Open Mode) -->
       <section id="view-settings" class="view-panel" aria-label="Settings">
         <div class="settings-container">
-          <!-- Section 1: Screensaver & Display Settings -->
-          <div class="settings-card">
-            <div class="settings-card-header">
-              <div>
-                <h2 class="settings-card-title">Display &amp; Clock Screensaver</h2>
-                <p class="settings-card-desc">Synced with Volumio Settings and <code>submodule/clocks/MainClockSelector.html</code></p>
-              </div>
-              <button type="button" id="setting-test-screensaver-btn" class="toolbar-btn toolbar-btn-primary">
+          <!-- Top Settings Action Bar -->
+          <div class="settings-top-toolbar">
+            <div class="settings-top-info">
+              <span class="settings-mode-badge">Settings</span>
+              <span class="settings-top-hint">Tap any setting row to open or close it</span>
+            </div>
+            <div class="settings-top-actions">
+              <button type="button" id="settings-theme-toggle-btn" class="toolbar-btn" title="Toggle Dark / Light Theme" aria-label="Toggle Theme">
+                <span id="settings-theme-icon">🌙</span>
+                <span id="settings-theme-text">Dark Theme</span>
+              </button>
+              <button type="button" id="settings-toggle-all-btn" class="toolbar-btn" aria-expanded="false">
+                <span id="settings-toggle-all-text">Open All Settings</span>
+              </button>
+              <button type="button" id="setting-test-screensaver-btn" class="toolbar-btn">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                   <circle cx="12" cy="12" r="10"></circle>
                   <polyline points="12 6 12 12 16 14"></polyline>
                 </svg>
-                <span>Launch Screensaver Now</span>
+                <span>Launch Clock</span>
+              </button>
+              <button type="button" id="save-settings-btn-top" class="toolbar-btn toolbar-btn-primary">
+                <span>Save All</span>
               </button>
             </div>
-
-            <div class="settings-row">
-              <div class="settings-label-group">
-                <label for="setting-display-mode" class="settings-label">Display Mode</label>
-                <span class="settings-hint">Run purely as a standalone Clock Screensaver or show the Full Player Menu</span>
-              </div>
-              <select id="setting-display-mode" class="settings-select">
-                <option value="screensaver_only">Screensaver Only (Clock Mode)</option>
-                <option value="full_ui">Full Menu + Screensaver</option>
-              </select>
-            </div>
-
-            <div class="settings-row">
-              <div class="settings-label-group">
-                <label for="setting-screensaver-enabled" class="settings-label">Enable Screensaver</label>
-                <span class="settings-hint">Automatically show the clock overlay after inactivity</span>
-              </div>
-              <label class="toggle-switch">
-                <input type="checkbox" id="setting-screensaver-enabled" checked />
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-
-            <div class="settings-row">
-              <div class="settings-label-group">
-                <label for="setting-idle-timeout" class="settings-label">Idle Timeout (seconds)</label>
-                <span class="settings-hint">Time before clock activates (e.g. 60s = 1 min, 300s = 5 min)</span>
-              </div>
-              <div class="stepper-control">
-                <button type="button" id="timeout-dec-btn" class="stepper-btn" aria-label="Decrease timeout by 10 seconds">−10s</button>
-                <input type="number" id="setting-idle-timeout" class="settings-input settings-input-num" min="5" max="7200" value="60" />
-                <button type="button" id="timeout-inc-btn" class="stepper-btn" aria-label="Increase timeout by 10 seconds">+10s</button>
-              </div>
-            </div>
-
-            <div class="settings-row">
-              <div class="settings-label-group">
-                <label for="setting-selected-clock" class="settings-label">Active Clock File</label>
-                <span class="settings-hint">HTML clock inside <code>submodule/clocks</code></span>
-              </div>
-              <select id="setting-selected-clock" class="settings-select">
-                <option value="MainClockSelector.html">MainClockSelector.html</option>
-              </select>
-            </div>
           </div>
 
-          <!-- Section 2: 5 Favorite Radio Presets -->
-          <div class="settings-card">
-            <div class="settings-card-header">
-              <div>
-                <h2 class="settings-card-title">Favorite Radio Stations (5 Presets)</h2>
-                <p class="settings-card-desc">Edit station names and direct audio stream URLs (MP3, AAC, HLS, Icecast)</p>
+          <!-- Setting 1: Display Mode & Startup Options -->
+          <details class="settings-accordion" id="acc-setting-1">
+            <summary class="settings-accordion-summary">
+              <div class="settings-summary-main">
+                <span class="settings-summary-title">Setting 1: Display &amp; Startup Mode</span>
+                <span class="settings-summary-preview" id="summary-setting-1">(Screensaver Only)</span>
+              </div>
+              <span class="settings-summary-chevron" aria-hidden="true">▸</span>
+            </summary>
+            <div class="settings-accordion-body">
+              <div class="settings-row">
+                <div class="settings-label-group">
+                  <label for="setting-display-mode" class="settings-label">Display Mode</label>
+                  <span class="settings-hint">Run purely as a standalone Clock Screensaver or show the Full Player Menu with idle screensaver</span>
+                </div>
+                <select id="setting-display-mode" class="settings-select">
+                  <option value="screensaver_only">Screensaver Only (Clock Mode)</option>
+                  <option value="full_ui">Full Menu + Screensaver</option>
+                </select>
               </div>
             </div>
+          </details>
 
-            <div id="setting-radio-list" class="settings-radio-list">
-              <!-- Populated dynamically for Presets 1 to 5 -->
+          <!-- Setting 2: Idle Screensaver & Timeout -->
+          <details class="settings-accordion" id="acc-setting-2">
+            <summary class="settings-accordion-summary">
+              <div class="settings-summary-main">
+                <span class="settings-summary-title">Setting 2: Idle Screensaver &amp; Timeout</span>
+                <span class="settings-summary-preview" id="summary-setting-2">(Enabled · 60s)</span>
+              </div>
+              <span class="settings-summary-chevron" aria-hidden="true">▸</span>
+            </summary>
+            <div class="settings-accordion-body">
+              <div class="settings-row">
+                <div class="settings-label-group">
+                  <label for="setting-screensaver-enabled" class="settings-label">Enable Screensaver</label>
+                  <span class="settings-hint">Automatically show the clock overlay after inactivity in Full Menu mode</span>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="setting-screensaver-enabled" checked />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+
+              <div class="settings-row">
+                <div class="settings-label-group">
+                  <label for="setting-prevent-while-playing" class="settings-label">Disable Screensaver While Playing</label>
+                  <span class="settings-hint">Keep album art and playback controls visible while music plays; screensaver only starts when stopped or paused</span>
+                </div>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="setting-prevent-while-playing" checked />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+
+              <div class="settings-row">
+                <div class="settings-label-group">
+                  <label for="setting-idle-timeout" class="settings-label">Idle Timeout (seconds)</label>
+                  <span class="settings-hint">Time before clock activates (e.g. 30s, 60s = 1 min, 300s = 5 min)</span>
+                </div>
+                <div class="stepper-control">
+                  <button type="button" id="timeout-dec-btn" class="stepper-btn" aria-label="Decrease timeout by 10 seconds">−10s</button>
+                  <input type="number" id="setting-idle-timeout" class="settings-input settings-input-num" min="5" max="7200" value="60" />
+                  <button type="button" id="timeout-inc-btn" class="stepper-btn" aria-label="Increase timeout by 10 seconds">+10s</button>
+                </div>
+              </div>
             </div>
-          </div>
+          </details>
+
+          <!-- Setting 3: Active Clock Face & Clock Customizers -->
+          <details class="settings-accordion" id="acc-setting-3">
+            <summary class="settings-accordion-summary">
+              <div class="settings-summary-main">
+                <span class="settings-summary-title">Setting 3: Active Clock &amp; Clock Customizer</span>
+                <span class="settings-summary-preview" id="summary-setting-3">(MainClockSelector.html)</span>
+              </div>
+              <span class="settings-summary-chevron" aria-hidden="true">▸</span>
+            </summary>
+            <div class="settings-accordion-body">
+              <div class="settings-row">
+                <div class="settings-label-group">
+                  <label for="setting-selected-clock" class="settings-label">Active Clock File</label>
+                  <span class="settings-hint">Select which HTML clock inside <code>submodule/clocks</code> to display</span>
+                </div>
+                <select id="setting-selected-clock" class="settings-select">
+                  <option value="MainClockSelector.html">MainClockSelector.html</option>
+                </select>
+              </div>
+
+              <div class="settings-row">
+                <div class="settings-label-group">
+                  <span class="settings-label">Clock Face Editors</span>
+                  <span class="settings-hint">Open the Clock Selector Hub, Digital Clock Settings, or Casio Watch Calibration</span>
+                </div>
+                <div class="settings-inline-actions">
+                  <a href="/clocks/MainClockSelector.html?selector=1" target="_blank" class="toolbar-btn">
+                    <span>Clocks Selector Hub ↗</span>
+                  </a>
+                  <a href="/clocks/digital/settings.html" target="_blank" class="toolbar-btn">
+                    <span>Digital Clock Settings ↗</span>
+                  </a>
+                  <a href="/clocks/CASIO/index.html" target="_blank" class="toolbar-btn">
+                    <span>Casio Watch ↗</span>
+                  </a>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <!-- Setting 4: 5 Favorite Radio Presets -->
+          <details class="settings-accordion" id="acc-setting-4">
+            <summary class="settings-accordion-summary">
+              <div class="settings-summary-main">
+                <span class="settings-summary-title">Setting 4: Favorite Radio Stations (5 Presets)</span>
+                <span class="settings-summary-preview" id="summary-setting-4">(Kan 88, Galgalatz…)</span>
+              </div>
+              <span class="settings-summary-chevron" aria-hidden="true">▸</span>
+            </summary>
+            <div class="settings-accordion-body">
+              <p class="settings-card-desc">Tap any preset below to open and edit its station name and stream URL (MP3, AAC, HLS, Icecast)</p>
+              <div id="setting-radio-list" class="settings-radio-list">
+                <!-- Populated dynamically for Presets 1 to 5 as collapsible or stacked items -->
+              </div>
+            </div>
+          </details>
+
+          <!-- Setting 5: Podcast RSS Feeds -->
+          <details class="settings-accordion" id="acc-setting-5">
+            <summary class="settings-accordion-summary">
+              <div class="settings-summary-main">
+                <span class="settings-summary-title">Setting 5: Podcast RSS Feeds</span>
+                <span class="settings-summary-preview" id="summary-setting-5">(0 RSS Feeds)</span>
+              </div>
+              <span class="settings-summary-chevron" aria-hidden="true">▸</span>
+            </summary>
+            <div class="settings-accordion-body">
+              <div class="settings-row">
+                <div class="settings-label-group">
+                  <span class="settings-label">Saved Podcast Shows</span>
+                  <span class="settings-hint">Manage RSS feeds for 1-tap episode streaming</span>
+                </div>
+                <button type="button" id="setting-add-podcast-btn" class="toolbar-btn toolbar-btn-primary">
+                  <span>+ Add Podcast RSS</span>
+                </button>
+              </div>
+              <div id="setting-podcast-list" class="settings-podcast-list">
+                <!-- Populated dynamically -->
+              </div>
+            </div>
+          </details>
+
+          <!-- Setting 6: Daemon, Web URLs & Volumio Connection (Now Playing Style) -->
+          <details class="settings-accordion" id="acc-setting-6">
+            <summary class="settings-accordion-summary">
+              <div class="settings-summary-main">
+                <span class="settings-summary-title">Setting 6: Daemon, Web URLs &amp; Volumio Connection</span>
+                <span class="settings-summary-preview" id="summary-setting-6">(Port 4004 · Volumio :3000)</span>
+              </div>
+              <span class="settings-summary-chevron" aria-hidden="true">▸</span>
+            </summary>
+            <div class="settings-accordion-body">
+              <div class="settings-row">
+                <div class="settings-label-group">
+                  <label for="setting-info-display-url" class="settings-label">CoreZoneDisplay URL</label>
+                  <span class="settings-hint">Direct web address for local display or browser</span>
+                </div>
+                <input type="text" id="setting-info-display-url" class="settings-input" readonly />
+              </div>
+
+              <div class="settings-row">
+                <div class="settings-label-group">
+                  <label for="setting-info-clock-url" class="settings-label">Digital Clock Settings URL</label>
+                  <span class="settings-hint">Direct URL to customize digital clock layout, Hebrew date &amp; colors</span>
+                </div>
+                <input type="text" id="setting-info-clock-url" class="settings-input" readonly />
+              </div>
+
+              <div class="settings-row">
+                <div class="settings-label-group">
+                  <span class="settings-label">Volumio Backend (:3000)</span>
+                  <span id="setting-volumio-status-hint" class="settings-hint">Socket.IO connection status</span>
+                </div>
+                <button type="button" id="setting-reconnect-btn" class="toolbar-btn">
+                  <span>Reconnect &amp; Check</span>
+                </button>
+              </div>
+            </div>
+          </details>
 
           <div class="settings-footer">
             <button type="button" id="save-settings-btn" class="save-settings-btn">
@@ -651,6 +794,9 @@
     <div id="screensaver-toolbar" class="screensaver-controls toolbar-hidden">
       <button type="button" id="screensaver-customize-btn" class="screensaver-hud-btn">
         <span>⚙ Change Clock</span>
+      </button>
+      <button type="button" id="screensaver-settings-btn" class="screensaver-hud-btn">
+        <span>⚙ Display Settings</span>
       </button>
       <a id="screensaver-volumio-link" href="http://localhost:3000" class="screensaver-hud-btn">
         <span>Volumio</span>

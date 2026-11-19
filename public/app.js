@@ -122,13 +122,29 @@
   // In-App Settings View Elements
   const settingDisplayMode = document.getElementById('setting-display-mode');
   const settingScreensaverEnabled = document.getElementById('setting-screensaver-enabled');
+  const settingPreventWhilePlaying = document.getElementById('setting-prevent-while-playing');
   const settingIdleTimeout = document.getElementById('setting-idle-timeout');
   const timeoutDecBtn = document.getElementById('timeout-dec-btn');
   const timeoutIncBtn = document.getElementById('timeout-inc-btn');
   const settingSelectedClock = document.getElementById('setting-selected-clock');
   const settingTestScreensaverBtn = document.getElementById('setting-test-screensaver-btn');
   const settingRadioList = document.getElementById('setting-radio-list');
+  const settingPodcastList = document.getElementById('setting-podcast-list');
+  const settingAddPodcastBtn = document.getElementById('setting-add-podcast-btn');
+  const settingInfoDisplayUrl = document.getElementById('setting-info-display-url');
+  const settingInfoClockUrl = document.getElementById('setting-info-clock-url');
+  const settingVolumioStatusHint = document.getElementById('setting-volumio-status-hint');
+  const settingReconnectBtn = document.getElementById('setting-reconnect-btn');
+  const settingsToggleAllBtn = document.getElementById('settings-toggle-all-btn');
+  const settingsToggleAllText = document.getElementById('settings-toggle-all-text');
+  const saveSettingsBtnTop = document.getElementById('save-settings-btn-top');
   const saveSettingsBtn = document.getElementById('save-settings-btn');
+  const summarySetting1 = document.getElementById('summary-setting-1');
+  const summarySetting2 = document.getElementById('summary-setting-2');
+  const summarySetting3 = document.getElementById('summary-setting-3');
+  const summarySetting4 = document.getElementById('summary-setting-4');
+  const summarySetting5 = document.getElementById('summary-setting-5');
+  const summarySetting6 = document.getElementById('summary-setting-6');
 
   // Fullscreen Now Playing Elements
   const npAlbumArt = document.getElementById('np-album-art');
@@ -181,6 +197,7 @@
   const screensaverWakeLayer = document.getElementById('screensaver-wake-layer');
   const screensaverToolbar = document.getElementById('screensaver-toolbar');
   const screensaverCustomizeBtn = document.getElementById('screensaver-customize-btn');
+  const screensaverSettingsBtn = document.getElementById('screensaver-settings-btn');
   const screensaverVolumioLink = document.getElementById('screensaver-volumio-link');
   const screensaverExitBtn = document.getElementById('screensaver-exit-btn');
 
@@ -191,6 +208,7 @@
   let currentView = 'home';
   let displayMode = DEFAULT_DISPLAY_MODE;
   let screensaverEnabled = DEFAULT_SCREENSAVER_ENABLED;
+  let preventScreensaverWhilePlaying = true;
   let idleTimeoutSec = DEFAULT_IDLE_TIMEOUT_SEC;
   let idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_SEC * 1000;
   let selectedClock = DEFAULT_CLOCK_FILE;
@@ -314,8 +332,9 @@
    */
   function ensureClockWebAutoLaunchDefaults() {
     try {
-      if (!localStorage.getItem('clockweb_saved_clock_id_v1')) {
-        localStorage.setItem('clockweb_saved_clock_id_v1', 'casio-gac-2500-3a');
+      const savedClock = localStorage.getItem('clockweb_saved_clock_id_v1');
+      if (!savedClock || savedClock === 'casio-gac-2500-3a') {
+        localStorage.setItem('clockweb_saved_clock_id_v1', 'casio-vector-bw-strap');
       }
       if (localStorage.getItem('clockweb_auto_launch_v1') === null) {
         localStorage.setItem('clockweb_auto_launch_v1', 'true');
@@ -430,6 +449,11 @@
         ? Boolean(cfg.screensaverEnabled)
         : DEFAULT_SCREENSAVER_ENABLED;
 
+    preventScreensaverWhilePlaying =
+      cfg.preventScreensaverWhilePlaying !== undefined
+        ? Boolean(cfg.preventScreensaverWhilePlaying)
+        : true;
+
     const parsedSec = Number(cfg.idleTimeoutSec);
     idleTimeoutSec =
       !isNaN(parsedSec) && parsedSec > 0 ? parsedSec : DEFAULT_IDLE_TIMEOUT_SEC;
@@ -516,8 +540,136 @@
   }
 
   // ==========================================================================
-  // In-App Settings View
+  // In-App Settings View (Collapsible Close/Open Mode & Live Summaries)
   // ==========================================================================
+
+  function getSettingsAccordions() {
+    return Array.prototype.slice.call(
+      document.querySelectorAll('#view-settings details.settings-accordion')
+    );
+  }
+
+  function syncSettingsToggleAllButton() {
+    if (!settingsToggleAllBtn || !settingsToggleAllText) {
+      return;
+    }
+    const accordions = getSettingsAccordions();
+    const allOpen =
+      accordions.length > 0 &&
+      accordions.every(function (d) {
+        return d.open;
+      });
+    settingsToggleAllBtn.setAttribute('aria-expanded', String(allOpen));
+    settingsToggleAllText.textContent = allOpen
+      ? 'Close All Settings'
+      : 'Open All Settings';
+  }
+
+  function updateSettingsSummaries() {
+    const modeVal =
+      (settingDisplayMode && settingDisplayMode.value) || displayMode || DEFAULT_DISPLAY_MODE;
+    if (summarySetting1) {
+      summarySetting1.textContent =
+        modeVal === 'full_ui'
+          ? '(Full Menu + Screensaver)'
+          : '(Screensaver Only · Clock Mode)';
+    }
+
+    const enabledVal = settingScreensaverEnabled
+      ? Boolean(settingScreensaverEnabled.checked)
+      : Boolean(screensaverEnabled);
+    const preventVal = settingPreventWhilePlaying
+      ? Boolean(settingPreventWhilePlaying.checked)
+      : Boolean(preventScreensaverWhilePlaying);
+    const timeoutVal =
+      (settingIdleTimeout && settingIdleTimeout.value) || String(idleTimeoutSec);
+    if (summarySetting2) {
+      const playNotice = preventVal ? ' · Suppressed on Play' : '';
+      summarySetting2.textContent =
+        '(' + (enabledVal ? 'Enabled' : 'Disabled') + ' · ' + timeoutVal + 's' + playNotice + ')';
+    }
+
+    const clockVal =
+      (settingSelectedClock && settingSelectedClock.value) || selectedClock || DEFAULT_CLOCK_FILE;
+    if (summarySetting3) {
+      summarySetting3.textContent = '(' + clockVal + ')';
+    }
+
+    const nameInputs = document.querySelectorAll('.setting-radio-name');
+    const stationNames = [];
+    for (var i = 0; i < 5; i++) {
+      const def = DEFAULT_RADIO_STATIONS[i];
+      const n =
+        nameInputs[i] && nameInputs[i].value.trim()
+          ? nameInputs[i].value.trim()
+          : (radioStations[i] && radioStations[i].name) || def.name;
+      stationNames.push(n);
+      const presetPreviewEl = document.getElementById('preset-summary-' + i);
+      if (presetPreviewEl) {
+        presetPreviewEl.textContent = '(' + n + ')';
+      }
+    }
+    if (summarySetting4) {
+      summarySetting4.textContent =
+        '(5 Presets: ' + stationNames.slice(0, 3).join(', ') + '…)';
+    }
+
+    if (summarySetting5) {
+      if (podcastFeeds.length === 0) {
+        summarySetting5.textContent = '(0 RSS Feeds)';
+      } else {
+        const feedNames = podcastFeeds
+          .slice(0, 2)
+          .map(function (f) {
+            return f.name;
+          })
+          .join(', ');
+        summarySetting5.textContent =
+          '(' + podcastFeeds.length + ' Feed' + (podcastFeeds.length > 1 ? 's' : '') + ': ' + feedNames + ')';
+      }
+    }
+
+    const isVolOnline = Boolean(socket && socket.connected);
+    if (summarySetting6) {
+      summarySetting6.textContent =
+        '(Port ' + (window.location.port || '4004') + ' · Volumio ' + (isVolOnline ? 'Online' : 'Offline') + ')';
+    }
+    if (settingVolumioStatusHint) {
+      settingVolumioStatusHint.textContent =
+        'Volumio (' + VOLUMIO_BACKEND_URL + '): ' + (isVolOnline ? 'Connected (Online)' : 'Offline');
+    }
+  }
+
+  function renderSettingsPodcastList() {
+    if (!settingPodcastList) {
+      return;
+    }
+    settingPodcastList.innerHTML = '';
+    if (podcastFeeds.length === 0) {
+      settingPodcastList.innerHTML =
+        '<div class="settings-hint">No custom Podcast RSS feeds saved yet. Tap "+ Add Podcast RSS" above to add one.</div>';
+      return;
+    }
+    podcastFeeds.forEach(function (feed, idx) {
+      const row = document.createElement('div');
+      row.className = 'settings-row';
+      row.innerHTML =
+        '<div class="settings-label-group">' +
+          '<span class="settings-label"></span>' +
+          '<span class="settings-hint"></span>' +
+        '</div>' +
+        '<button type="button" class="radio-edit-chip">Remove</button>';
+      row.querySelector('.settings-label').textContent = feed.name;
+      row.querySelector('.settings-hint').textContent = feed.rssUrl;
+      row.querySelector('.radio-edit-chip').addEventListener('click', function () {
+        const remaining = podcastFeeds.filter(function (_, i) {
+          return i !== idx;
+        });
+        savePluginConfig({ podcastFeeds: remaining }, 'Removed podcast feed');
+      });
+      settingPodcastList.appendChild(row);
+    });
+  }
 
   function populateSettingsForm() {
     if (settingDisplayMode) {
@@ -525,6 +677,9 @@
     }
     if (settingScreensaverEnabled) {
       settingScreensaverEnabled.checked = Boolean(screensaverEnabled);
+    }
+    if (settingPreventWhilePlaying) {
+      settingPreventWhilePlaying.checked = Boolean(preventScreensaverWhilePlaying);
     }
     if (settingIdleTimeout) {
       settingIdleTimeout.value = String(idleTimeoutSec);
@@ -550,19 +705,63 @@
     if (settingRadioList) {
       settingRadioList.innerHTML = '';
       for (var i = 0; i < 5; i++) {
-        const preset = radioStations[i] || DEFAULT_RADIO_STATIONS[i];
-        const row = document.createElement('div');
-        row.className = 'settings-radio-row';
-        row.innerHTML =
-          '<span class="settings-radio-badge">PRESET ' + (i + 1) + '</span>' +
-          '<input type="text" class="settings-input setting-radio-name" data-idx="' + i + '" placeholder="Station Name" />' +
-          '<input type="url" class="settings-input setting-radio-url" data-idx="' + i + '" placeholder="https://stream-url..." />';
+        (function (idx) {
+          const preset = radioStations[idx] || DEFAULT_RADIO_STATIONS[idx];
+          const detailsEl = document.createElement('details');
+          detailsEl.className = 'radio-preset-accordion';
+          detailsEl.innerHTML =
+            '<summary class="radio-preset-summary">' +
+              '<div class="settings-summary-main">' +
+                '<span class="settings-radio-badge">PRESET ' + (idx + 1) + '</span>' +
+                '<span class="settings-summary-preview" id="preset-summary-' + idx + '"></span>' +
+              '</div>' +
+              '<span class="settings-summary-chevron" aria-hidden="true">▸</span>' +
+            '</summary>' +
+            '<div class="radio-preset-body">' +
+              '<input type="text" class="settings-input setting-radio-name" data-idx="' + idx + '" placeholder="Station Name" aria-label="Preset ' + (idx + 1) + ' Name" />' +
+              '<input type="url" class="settings-input setting-radio-url" data-idx="' + idx + '" placeholder="https://stream-url..." aria-label="Preset ' + (idx + 1) + ' Stream URL" />' +
+              '<button type="button" class="toolbar-btn setting-radio-test-btn" data-idx="' + idx + '">▶ Test</button>' +
+            '</div>';
 
-        row.querySelector('.setting-radio-name').value = preset.name || '';
-        row.querySelector('.setting-radio-url').value = preset.url || '';
-        settingRadioList.appendChild(row);
+          const nameInput = detailsEl.querySelector('.setting-radio-name');
+          const urlInput = detailsEl.querySelector('.setting-radio-url');
+          const testBtn = detailsEl.querySelector('.setting-radio-test-btn');
+          const sumEl = detailsEl.querySelector('#preset-summary-' + idx);
+
+          nameInput.value = preset.name || '';
+          urlInput.value = preset.url || '';
+          sumEl.textContent = '(' + (preset.name || 'Station ' + (idx + 1)) + ')';
+
+          nameInput.addEventListener('input', updateSettingsSummaries);
+          urlInput.addEventListener('input', updateSettingsSummaries);
+          testBtn.addEventListener('click', function () {
+            const n = nameInput.value.trim() || 'Preset ' + (idx + 1);
+            const u = urlInput.value.trim();
+            if (!u) {
+              showToast('Enter a stream URL to test');
+              return;
+            }
+            showToast('Testing: ' + n);
+            playRadioStation({ name: n, uri: u });
+          });
+
+          settingRadioList.appendChild(detailsEl);
+        })(i);
       }
     }
+
+    renderSettingsPodcastList();
+
+    const origin = window.location.origin || ('http://' + VOLUMIO_HOST + ':4004');
+    if (settingInfoDisplayUrl) {
+      settingInfoDisplayUrl.value = origin + '/';
+    }
+    if (settingInfoClockUrl) {
+      settingInfoClockUrl.value = origin + '/clocks/digital/settings.html';
+    }
+
+    updateSettingsSummaries();
+    syncSettingsToggleAllButton();
   }
 
   function handleSaveSettingsFromView() {
@@ -603,10 +802,15 @@
       };
     }
 
+    const newPreventPlaying = settingPreventWhilePlaying
+      ? Boolean(settingPreventWhilePlaying.checked)
+      : preventScreensaverWhilePlaying;
+
     savePluginConfig(
       {
         displayMode: newDisplayMode,
         screensaverEnabled: newEnabled,
+        preventScreensaverWhilePlaying: newPreventPlaying,
         idleTimeoutSec: newTimeoutSec,
         selectedClock: newClock,
         radioStations: updatedStations
@@ -1270,7 +1474,15 @@
       return;
     }
 
+    // Do NOT activate screensaver while music is actively playing when suppression is enabled
+    if (preventScreensaverWhilePlaying && volumioState && volumioState.status === 'play') {
+      return;
+    }
+
     idleTimerId = setTimeout(function () {
+      if (preventScreensaverWhilePlaying && volumioState && volumioState.status === 'play') {
+        return;
+      }
       showScreensaver();
     }, idleTimeoutMs);
   }
@@ -1296,6 +1508,7 @@
     if (connectionStatus) {
       connectionStatus.textContent = labelText;
     }
+    updateSettingsSummaries();
   }
 
   function resolveAlbumArtUrl(rawArt) {
@@ -1500,12 +1713,20 @@
 
     const newTrackKey = (state.title || '') + '|' + (state.uri || '');
     const statusChangedToPlay = status === 'play' && prevStatus !== 'play';
+    const statusChangedToStopOrPause = (status === 'pause' || status === 'stop') && prevStatus === 'play';
     const trackChanged = newTrackKey !== prevTrackKey && Boolean(state.title || state.uri);
 
     lastWakeStatus = status;
     lastWakeTrackKey = newTrackKey;
 
-    if (statusChangedToPlay || trackChanged) {
+    if (statusChangedToPlay) {
+      if (preventScreensaverWhilePlaying && isScreensaverActive && displayMode !== 'screensaver_only') {
+        hideScreensaver();
+      }
+      resetIdleTimer();
+    } else if (trackChanged) {
+      resetIdleTimer();
+    } else if (statusChangedToStopOrPause) {
       resetIdleTimer();
     }
   }
@@ -1634,6 +1855,28 @@
       screensaverCustomizeBtn.addEventListener('click', function (event) {
         event.stopPropagation();
         setClockInteractiveMode(!isClockInteractive);
+      });
+    }
+
+    // "Display Settings" button inside #screensaver opens #view-settings even when in screensaver_only mode
+    if (screensaverSettingsBtn) {
+      screensaverSettingsBtn.addEventListener('click', function (event) {
+        event.stopPropagation();
+        clearIdleTimer();
+        isScreensaverActive = false;
+        setClockInteractiveMode(false);
+        if (screensaverEl) {
+          screensaverEl.classList.add('hidden');
+          screensaverEl.setAttribute('aria-hidden', 'true');
+        }
+        if (mainUiEl) {
+          mainUiEl.classList.remove('hidden');
+        }
+        if (!socketInitialized) {
+          socketInitialized = true;
+          initVolumioSocket();
+        }
+        navigateToView('settings');
       });
     }
 
@@ -1804,17 +2047,107 @@
     }
 
     // Settings View Actions
+    const settingsThemeToggleBtn = document.getElementById('settings-theme-toggle-btn');
+    const settingsThemeIcon = document.getElementById('settings-theme-icon');
+    const settingsThemeText = document.getElementById('settings-theme-text');
+    let currentAppTheme = 'dark';
+    try {
+      currentAppTheme = localStorage.getItem('corezone_theme_v1') || 'dark';
+    } catch (e) {}
+
+    function applyAppTheme(theme, save) {
+      currentAppTheme = theme === 'light' ? 'light' : 'dark';
+      if (currentAppTheme === 'light') {
+        document.documentElement.setAttribute('data-theme', 'light');
+        document.body.classList.add('light-theme');
+      } else {
+        document.documentElement.removeAttribute('data-theme');
+        document.body.classList.remove('light-theme');
+      }
+      if (save) {
+        try {
+          localStorage.setItem('corezone_theme_v1', currentAppTheme);
+        } catch (e) {}
+      }
+      if (settingsThemeIcon) settingsThemeIcon.textContent = currentAppTheme === 'light' ? '☀️' : '🌙';
+      if (settingsThemeText) settingsThemeText.textContent = currentAppTheme === 'light' ? 'Light Theme' : 'Dark Theme';
+    }
+
+    if (settingsThemeToggleBtn) {
+      settingsThemeToggleBtn.addEventListener('click', function () {
+        applyAppTheme(currentAppTheme === 'dark' ? 'light' : 'dark', true);
+      });
+    }
+    applyAppTheme(currentAppTheme, false);
+
+    if (settingsToggleAllBtn) {
+      settingsToggleAllBtn.addEventListener('click', function () {
+        const accordions = getSettingsAccordions();
+        const shouldOpen = !accordions.every(function (d) {
+          return d.open;
+        });
+        accordions.forEach(function (d) {
+          d.open = shouldOpen;
+        });
+        syncSettingsToggleAllButton();
+      });
+    }
+
+    getSettingsAccordions().forEach(function (d) {
+      d.addEventListener('toggle', syncSettingsToggleAllButton);
+    });
+
+    if (settingDisplayMode) {
+      settingDisplayMode.addEventListener('change', updateSettingsSummaries);
+    }
+    if (settingScreensaverEnabled) {
+      settingScreensaverEnabled.addEventListener('change', updateSettingsSummaries);
+    }
+    if (settingPreventWhilePlaying) {
+      settingPreventWhilePlaying.addEventListener('change', updateSettingsSummaries);
+    }
+    if (settingIdleTimeout) {
+      settingIdleTimeout.addEventListener('input', updateSettingsSummaries);
+      settingIdleTimeout.addEventListener('change', updateSettingsSummaries);
+    }
+    if (settingSelectedClock) {
+      settingSelectedClock.addEventListener('change', updateSettingsSummaries);
+    }
+
     if (timeoutDecBtn && settingIdleTimeout) {
       timeoutDecBtn.addEventListener('click', function () {
         const current = parseInt(settingIdleTimeout.value, 10) || 60;
         settingIdleTimeout.value = String(Math.max(10, current - 10));
+        updateSettingsSummaries();
       });
     }
     if (timeoutIncBtn && settingIdleTimeout) {
       timeoutIncBtn.addEventListener('click', function () {
         const current = parseInt(settingIdleTimeout.value, 10) || 60;
         settingIdleTimeout.value = String(current + 10);
+        updateSettingsSummaries();
       });
+    }
+    if (settingAddPodcastBtn) {
+      settingAddPodcastBtn.addEventListener('click', openPodcastModal);
+    }
+    if (settingReconnectBtn) {
+      settingReconnectBtn.addEventListener('click', function () {
+        showToast('Checking Volumio backend (' + VOLUMIO_BACKEND_URL + ')...');
+        if (socket) {
+          try {
+            socket.connect();
+            socket.emit('getState', '');
+          } catch (e) {}
+        } else {
+          socketInitialized = true;
+          initVolumioSocket();
+        }
+        setTimeout(updateSettingsSummaries, 600);
+      });
+    }
+    if (saveSettingsBtnTop) {
+      saveSettingsBtnTop.addEventListener('click', handleSaveSettingsFromView);
     }
     if (saveSettingsBtn) {
       saveSettingsBtn.addEventListener('click', handleSaveSettingsFromView);

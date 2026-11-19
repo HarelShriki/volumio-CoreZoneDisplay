@@ -16,18 +16,44 @@
       "saveButton": {
         "label": "TRANSLATE.SAVE",
         "data": [
+          "openSetting1",
           "displayMode",
+          "openSetting2",
           "screensaverEnabled",
           "idleTimeoutSec",
-          "selectedClock"
+          "openSetting3",
+          "selectedClock",
+          "openSetting4",
+          "radio1Name",
+          "radio1Url",
+          "radio2Name",
+          "radio2Url",
+          "radio3Name",
+          "radio3Url",
+          "radio4Name",
+          "radio4Url",
+          "radio5Name",
+          "radio5Url",
+          "openSetting5"
         ]
       },
       "content": [
+        {
+          "id": "openSetting1",
+          "element": "switch",
+          "doc": "TRANSLATE.OPEN_SETTING_DOC",
+          "label": "TRANSLATE.SETTING_1_HEADER",
+          "value": false
+        },
         {
           "id": "displayMode",
           "element": "select",
           "doc": "TRANSLATE.DISPLAY_MODE_DOC",
           "label": "TRANSLATE.DISPLAY_MODE",
+          "visibleIf": {
+            "field": "openSetting1",
+            "value": true
+          },
           "value": {
             "value": "screensaver_only",
             "label": "Screensaver Only (Clock Mode)"
@@ -44,10 +70,32 @@
           ]
         },
         {
+          "id": "openSetting2",
+          "element": "switch",
+          "doc": "TRANSLATE.OPEN_SETTING_DOC",
+          "label": "TRANSLATE.SETTING_2_HEADER",
+          "value": false
+        },
+        {
           "id": "screensaverEnabled",
           "element": "switch",
           "doc": "TRANSLATE.ENABLE_SCREENSAVER_DOC",
           "label": "TRANSLATE.ENABLE_SCREENSAVER",
+          "visibleIf": {
+            "field": "openSetting2",
+            "value": true
+          },
+          "value": true
+        },
+        {
+          "id": "preventScreensaverWhilePlaying",
+          "element": "switch",
+          "doc": "TRANSLATE.PREVENT_SCREENSAVER_PLAYING_DOC",
+          "label": "TRANSLATE.PREVENT_SCREENSAVER_PLAYING",
+          "visibleIf": {
+            "field": "openSetting2",
+            "value": true
+          },
           "value": true
         },
         {
@@ -56,13 +104,28 @@
           "type": "number",
           "doc": "TRANSLATE.IDLE_TIMEOUT_DOC",
           "label": "TRANSLATE.IDLE_TIMEOUT_SEC",
+          "visibleIf": {
+            "field": "openSetting2",
+            "value": true
+          },
           "value": 60
+        },
+        {
+          "id": "openSetting3",
+          "element": "switch",
+          "doc": "TRANSLATE.OPEN_SETTING_DOC",
+          "label": "TRANSLATE.SETTING_3_HEADER",
+          "value": false
         },
         {
           "id": "selectedClock",
           "element": "select",
           "doc": "TRANSLATE.ACTIVE_CLOCK_DOC",
           "label": "TRANSLATE.ACTIVE_CLOCK",
+          "visibleIf": {
+            "field": "openSetting3",
+            "value": true
+          },
           "value": {
             "value": "MainClockSelector.html",
             "label": "MainClockSelector.html"
@@ -73,6 +136,154 @@
               "label": "MainClockSelector.html"
             }
           ]
+        },
+        {
+          "id": "openSetting4",
+          "element": "switch",
+          "doc": "TRANSLATE.OPEN_SETTING_DOC",
+          "label": "TRANSLATE.SETTING_4_HEADER",
+          "value": false
+        },
+        {
+          "id": "radio1Name",
+          "element": "input",
+          "type": "text",
+          "label": "TRANSLATE.RADIO_1_NAME",
+          "visibleIf": {
+            "field": "openSetting4",
+            "value": true
+          },
+          "value": "Kan 88"
+        },
+        {
+          "id": "radio1Url",
+          "element": "input",
+          "type": "text",
+          "label": "TRANSLATE.RADIO_1_URL",
+          "visibleIf": {
+            "field": "openSetting4",
+            "value": true
+          },
+          "value": "https://27783.live.streamtheworld.com/KAN_88.mp3"
+        },
+        {
+          "id": "radio2Name",
+          "element": "input",
+          "type": "text",
+          "label": "TRANSLATE.RADIO_2_NAME",
+          "visibleIf": {
+            "field": "openSetting4",
+            "value": true
+          },
+          "value": "Galgalatz"
+        },
+        {
+          "id": "radio2Url",
+          "element": "input",
+          "type": "text",
+          "label": "TRANSLATE.RADIO_2_URL",
+          "visibleIf": {
+            "field": "openSetting4",
+            "value": true
+          },
+          "value": "https://glzwizzlv.bynetcdn.com/glglz_mp3"
+        },
+        {
+          "id": "radio3Name",
+          "element": "input",
+          "type": "text",
+          "label": "TRANSLATE.RADIO_3_NAME",
+          "visibleIf": {
+            "field": "openSetting4",
+            "value": true
+          },
+          "value": "Eco 99 FM"
+        },
+        {
+          "id": "radio3Url",
+          "element": "input",
+          "type": "text",
+          "label": "TRANSLATE.RADIO_3_URL",
+          "visibleIf": {
+            "field": "openSetting4",
+            "value": true
+          },
+          "value": "https://eco01.mediacast.co.il/ecolive/99fm_aac/icecast.audio"
+        },
+        {
+          "id": "radio4Name",
+          "element": "input",
+          "type": "text",
+          "label": "TRANSLATE.RADIO_4_NAME",
+          "visibleIf": {
+            "field": "openSetting4",
+            "value": true
+          },
+          "value": "Radio Paradise"
+        },
+        {
+          "id": "radio4Url",
+          "element": "input",
+          "type": "text",
+          "label": "TRANSLATE.RADIO_4_URL",
+          "visibleIf": {
+            "field": "openSetting4",
+            "value": true
+          },
+          "value": "http://stream.radioparadise.com/aac-320"
+        },
+        {
+          "id": "radio5Name",
+          "element": "input",
+          "type": "text",
+          "label": "TRANSLATE.RADIO_5_NAME",
+          "visibleIf": {
+            "field": "openSetting4",
+            "value": true
+          },
+          "value": "SomaFM Groove Salad"
+        },
+        {
+          "id": "radio5Url",
+          "element": "input",
+          "type": "text",
+          "label": "TRANSLATE.RADIO_5_URL",
+          "visibleIf": {
+            "field": "openSetting4",
+            "value": true
+          },
+          "value": "https://ice1.somafm.com/groovesalad-256-mp3"
+        },
+        {
+          "id": "openSetting5",
+          "element": "switch",
+          "doc": "TRANSLATE.OPEN_SETTING_DOC",
+          "label": "TRANSLATE.SETTING_5_HEADER",
+          "value": false
+        },
+        {
+          "id": "displayUrl",
+          "element": "input",
+          "type": "text",
+          "label": "TRANSLATE.DISPLAY_URL",
+          "doc": "TRANSLATE.DISPLAY_URL_DOC",
+          "visibleIf": {
+            "field": "openSetting5",
+            "value": true
+          },
+          "value": "http://localhost:4004"
+        },
+        {
+          "id": "clockSettingsUrl",
+          "element": "input",
+          "type": "text",
+          "label": "TRANSLATE.CLOCK_SETTINGS_URL",
+          "doc": "TRANSLATE.CLOCK_SETTINGS_URL_DOC",
+          "visibleIf": {
+            "field": "openSetting5",
+            "value": true
+          },
+          "value": "http://localhost:4004/clocks/digital/settings.html"
         }
       ]
     }

@@ -48,6 +48,7 @@ const MIME_TYPES = {
 const DEFAULT_DEV_CONFIG = {
   displayMode: 'screensaver_only',
   screensaverEnabled: true,
+  preventScreensaverWhilePlaying: true,
   idleTimeoutSec: 30,
   selectedClock: 'MainClockSelector.html',
   radioStations: [

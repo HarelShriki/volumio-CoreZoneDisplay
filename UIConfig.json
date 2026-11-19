@@ -12,7 +12,7 @@
       "onSave": {
         "type": "controller",
         "endpoint": "user_interface/core_zone_display",
-        "method": "saveSettings"
+        "method": "configSaveDisplay"
       },
       "saveButton": {
         "label": "TRANSLATE.SAVE",
@@ -26,16 +26,16 @@
           "label": "TRANSLATE.DISPLAY_MODE",
           "value": {
             "value": "screensaver_only",
-            "label": "Clock Only"
+            "label": "TRANSLATE.DISPLAY_MODE_SCREENSAVER_ONLY"
           },
           "options": [
             {
               "value": "screensaver_only",
-              "label": "Clock Only"
+              "label": "TRANSLATE.DISPLAY_MODE_SCREENSAVER_ONLY"
             },
             {
               "value": "full_ui",
-              "label": "Player Menu + Clock When Idle"
+              "label": "TRANSLATE.DISPLAY_MODE_FULL_UI"
             }
           ]
         }
@@ -50,7 +50,7 @@
       "onSave": {
         "type": "controller",
         "endpoint": "user_interface/core_zone_display",
-        "method": "saveSettings"
+        "method": "configSaveScreensaver"
       },
       "saveButton": {
         "label": "TRANSLATE.SAVE",
@@ -98,7 +98,7 @@
       "onSave": {
         "type": "controller",
         "endpoint": "user_interface/core_zone_display",
-        "method": "saveSettings"
+        "method": "configSaveClock"
       },
       "saveButton": {
         "label": "TRANSLATE.SAVE",
@@ -132,7 +132,7 @@
       "onSave": {
         "type": "controller",
         "endpoint": "user_interface/core_zone_display",
-        "method": "saveSettings"
+        "method": "configSaveRadio"
       },
       "saveButton": {
         "label": "TRANSLATE.SAVE",

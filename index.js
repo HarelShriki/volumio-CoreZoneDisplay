@@ -85,6 +85,19 @@ function createVConf() {
             this._data = {};
           }
         },
+        save: function () {
+          if (this._filePath && this._data) {
+            try {
+              var dir = path.dirname(this._filePath);
+              if (!fs.existsSync(dir)) {
+                fs.mkdirSync(dir, { recursive: true });
+              }
+              fs.writeFileSync(this._filePath, JSON.stringify(this._data, null, 2), 'utf8');
+            } catch (err) {
+              // Ignore write error
+            }
+          }
+        },
         get: function (key) {
           if (this._data && this._data[key] !== undefined) {
             return this._data[key].value !== undefined ? this._data[key].value : this._data[key];
@@ -114,6 +127,56 @@ function createVConf() {
       };
     }
   }
+}
+
+/**
+ * Unwraps Volumio select objects { value: ..., label: ... } and returns raw key-value mapping.
+ * Matches volumio-now-playing's parseConfigSaveData pattern.
+ */
+function parseConfigSaveData(data) {
+  var apply = {};
+  if (!data || typeof data !== 'object') {
+    return apply;
+  }
+  for (var key in data) {
+    if (Object.prototype.hasOwnProperty.call(data, key)) {
+      var val = data[key];
+      if (val !== null && typeof val === 'object' && val.value !== undefined) {
+        apply[key] = val.value;
+      } else {
+        apply[key] = val;
+      }
+    }
+  }
+  return apply;
+}
+
+/**
+ * Robust boolean parser handling true/false, "true"/"false", { value: boolean }, 1/0
+ */
+function parseBoolean(val, fallback) {
+  if (val === undefined || val === null) {
+    return fallback !== undefined ? fallback : false;
+  }
+  if (typeof val === 'object' && val !== null && val.value !== undefined) {
+    val = val.value;
+  }
+  if (typeof val === 'boolean') {
+    return val;
+  }
+  if (typeof val === 'string') {
+    var lower = val.trim().toLowerCase();
+    if (lower === 'true' || lower === '1' || lower === 'yes' || lower === 'on') {
+      return true;
+    }
+    if (lower === 'false' || lower === '0' || lower === 'no' || lower === 'off') {
+      return false;
+    }
+  }
+  if (typeof val === 'number') {
+    return val !== 0;
+  }
+  return Boolean(val);
 }
 
 function CoreZoneDisplay(context) {
@@ -162,28 +225,91 @@ CoreZoneDisplay.prototype.onVolumioStart = function () {
 
   // If Volumio's /data/configuration/.../config.json does not exist yet, seed it from plugin's config.json
   try {
-    if (
-      configFile !== defaultConfigFile &&
-      !fs.existsSync(configFile) &&
-      fs.existsSync(defaultConfigFile)
-    ) {
-      var targetDir = path.dirname(configFile);
-      if (fs.existsSync(targetDir)) {
+    var targetDir = path.dirname(configFile);
+    if (!fs.existsSync(targetDir)) {
+      try {
+        fs.mkdirSync(targetDir, { recursive: true });
+      } catch (mkdirErr) {
+        self.logError('CoreZoneDisplay: Failed to create target dir ' + targetDir + ': ' + mkdirErr.message);
+      }
+    }
+
+    if (!fs.existsSync(configFile) && fs.existsSync(defaultConfigFile)) {
+      try {
         fs.copyFileSync(defaultConfigFile, configFile);
-      } else {
-        configFile = defaultConfigFile;
+      } catch (cpErr) {
+        self.logError('CoreZoneDisplay: Failed to seed config.json: ' + cpErr.message);
       }
     }
   } catch (err) {
+    self.logError('CoreZoneDisplay: onVolumioStart config resolution error: ' + err.message);
+  }
+
+  // If configFile still does not exist on disk, fall back to defaultConfigFile
+  if (!fs.existsSync(configFile) && fs.existsSync(defaultConfigFile)) {
     configFile = defaultConfigFile;
   }
 
   self.configFilePath = configFile;
   self.config = createVConf();
   self.config.loadFile(configFile);
+
+  // Backfill any missing default keys into self.config
+  self.backfillDefaultConfig();
+
   self.logInfo('CoreZoneDisplay: onVolumioStart loaded config from ' + configFile);
 
   return libQ.resolve();
+};
+
+/**
+ * Backfills any missing default keys into self.config so upgrades or fresh installs
+ * always have all settings populated and available.
+ */
+CoreZoneDisplay.prototype.backfillDefaultConfig = function () {
+  var self = this;
+  if (!self.config) {
+    return;
+  }
+  var changed = false;
+
+  if (self.config.get('displayMode') === undefined) {
+    self.config.set('displayMode', DEFAULT_DISPLAY_MODE);
+    changed = true;
+  }
+  if (self.config.get('screensaverEnabled') === undefined) {
+    self.config.set('screensaverEnabled', DEFAULT_SCREENSAVER_ENABLED);
+    changed = true;
+  }
+  if (self.config.get('preventScreensaverWhilePlaying') === undefined) {
+    self.config.set('preventScreensaverWhilePlaying', true);
+    changed = true;
+  }
+  if (self.config.get('idleTimeoutSec') === undefined) {
+    self.config.set('idleTimeoutSec', DEFAULT_IDLE_TIMEOUT_SEC);
+    changed = true;
+  }
+  if (self.config.get('selectedClock') === undefined) {
+    self.config.set('selectedClock', DEFAULT_CLOCK_FILE);
+    changed = true;
+  }
+  for (var i = 1; i <= 5; i++) {
+    var defPreset = DEFAULT_RADIO_PRESETS[i - 1];
+    if (self.config.get('radio' + i + 'Name') === undefined) {
+      self.config.set('radio' + i + 'Name', defPreset.name);
+      changed = true;
+    }
+    if (self.config.get('radio' + i + 'Url') === undefined) {
+      self.config.set('radio' + i + 'Url', defPreset.url);
+      changed = true;
+    }
+  }
+
+  if (changed && typeof self.config.save === 'function') {
+    try {
+      self.config.save();
+    } catch (e) {}
+  }
 };
 
 /**
@@ -500,21 +626,18 @@ CoreZoneDisplay.prototype.getUIConfig = function () {
 };
 
 /**
- * Saves settings from Volumio's Settings UI.
- * Correctly extracts .value from Volumio select objects.
+ * Saves settings from Volumio's Settings UI or section onSave handlers.
+ * Extracts clean values from Volumio select objects and switches.
  */
 CoreZoneDisplay.prototype.saveSettings = function (data) {
   var self = this;
   self.ensureConfigLoaded();
-  data = data || {};
+  var cleanData = parseConfigSaveData(data || {});
 
   // Each Volumio section has its own Save button and sends only its own fields,
   // so only update the settings that are present in this request.
-  if (data.displayMode !== undefined) {
-    var rawDisplayMode =
-      data.displayMode && data.displayMode.value !== undefined
-        ? data.displayMode.value
-        : data.displayMode;
+  if (cleanData.displayMode !== undefined) {
+    var rawDisplayMode = cleanData.displayMode;
     var displayMode =
       rawDisplayMode === 'full_ui' || rawDisplayMode === 'screensaver_only'
         ? rawDisplayMode
@@ -522,43 +645,54 @@ CoreZoneDisplay.prototype.saveSettings = function (data) {
     self.config.set('displayMode', displayMode);
   }
 
-  if (data.screensaverEnabled !== undefined) {
-    self.config.set('screensaverEnabled', Boolean(data.screensaverEnabled));
+  if (cleanData.screensaverEnabled !== undefined) {
+    self.config.set(
+      'screensaverEnabled',
+      parseBoolean(cleanData.screensaverEnabled, DEFAULT_SCREENSAVER_ENABLED)
+    );
   }
 
-  if (data.preventScreensaverWhilePlaying !== undefined) {
-    self.config.set('preventScreensaverWhilePlaying', Boolean(data.preventScreensaverWhilePlaying));
+  if (cleanData.preventScreensaverWhilePlaying !== undefined) {
+    self.config.set(
+      'preventScreensaverWhilePlaying',
+      parseBoolean(cleanData.preventScreensaverWhilePlaying, true)
+    );
   }
 
-  if (data.idleTimeoutSec !== undefined) {
-    var idleTimeoutSec = parseInt(data.idleTimeoutSec, 10);
+  if (cleanData.idleTimeoutSec !== undefined) {
+    var idleTimeoutSec = parseInt(cleanData.idleTimeoutSec, 10);
     if (isNaN(idleTimeoutSec) || idleTimeoutSec <= 0) {
       idleTimeoutSec = DEFAULT_IDLE_TIMEOUT_SEC;
     }
     self.config.set('idleTimeoutSec', idleTimeoutSec);
   }
 
-  if (data.selectedClock !== undefined) {
-    var rawSelectedClock =
-      data.selectedClock && data.selectedClock.value !== undefined
-        ? data.selectedClock.value
-        : data.selectedClock;
+  if (cleanData.selectedClock !== undefined) {
     var selectedClock =
-      typeof rawSelectedClock === 'string' && rawSelectedClock.trim()
-        ? rawSelectedClock.trim()
+      typeof cleanData.selectedClock === 'string' && cleanData.selectedClock.trim()
+        ? cleanData.selectedClock.trim()
         : DEFAULT_CLOCK_FILE;
     self.config.set('selectedClock', selectedClock);
   }
 
   for (var i = 1; i <= 5; i++) {
     var defPreset = DEFAULT_RADIO_PRESETS[i - 1];
-    if (data && data['radio' + i + 'Name'] !== undefined) {
-      var rName = String(data['radio' + i + 'Name'] || '').trim() || defPreset.name;
+    if (cleanData['radio' + i + 'Name'] !== undefined) {
+      var rName = String(cleanData['radio' + i + 'Name'] || '').trim() || defPreset.name;
       self.config.set('radio' + i + 'Name', rName);
     }
-    if (data && data['radio' + i + 'Url'] !== undefined) {
-      var rUrl = String(data['radio' + i + 'Url'] || '').trim() || defPreset.url;
+    if (cleanData['radio' + i + 'Url'] !== undefined) {
+      var rUrl = String(cleanData['radio' + i + 'Url'] || '').trim() || defPreset.url;
       self.config.set('radio' + i + 'Url', rUrl);
+    }
+  }
+
+  // Force synchronous write to disk immediately (do not wait for 1000ms scheduleSave)
+  if (typeof self.config.save === 'function') {
+    try {
+      self.config.save();
+    } catch (saveErr) {
+      self.logError('CoreZoneDisplay: config.save() error: ' + saveErr.message);
     }
   }
 
@@ -568,9 +702,59 @@ CoreZoneDisplay.prototype.saveSettings = function (data) {
     self.commandRouter.pushToastMessage('success', 'CoreZoneDisplay', 'Settings saved');
   }
 
+  // Broadcast settings to active player screens
   self.notifySettingsChanged();
 
+  // Push updated UIConfig back to Volumio UI so form refreshes cleanly
+  self.refreshUIConfig();
+
   return libQ.resolve();
+};
+
+/**
+ * Section-specific save handlers called by Volumio's section Save buttons
+ * (Matches volumio-now-playing's configSave* architecture)
+ */
+CoreZoneDisplay.prototype.configSaveDisplay = function (data) {
+  return this.saveSettings(data);
+};
+
+CoreZoneDisplay.prototype.configSaveScreensaver = function (data) {
+  return this.saveSettings(data);
+};
+
+CoreZoneDisplay.prototype.configSaveClock = function (data) {
+  return this.saveSettings(data);
+};
+
+CoreZoneDisplay.prototype.configSaveRadio = function (data) {
+  return this.saveSettings(data);
+};
+
+/**
+ * Refreshes UIConfig on Volumio's admin UI by pushing pushUiConfig
+ * Matches volumio-now-playing's refreshUIConfig implementation.
+ */
+CoreZoneDisplay.prototype.refreshUIConfig = function () {
+  var self = this;
+  try {
+    if (
+      self.commandRouter &&
+      typeof self.commandRouter.getUIConfigOnPlugin === 'function' &&
+      typeof self.commandRouter.broadcastMessage === 'function'
+    ) {
+      self.commandRouter
+        .getUIConfigOnPlugin('user_interface', 'core_zone_display', {})
+        .then(function (config) {
+          self.commandRouter.broadcastMessage('pushUiConfig', config);
+        })
+        .fail(function (err) {
+          self.logError('CoreZoneDisplay: refreshUIConfig failed: ' + err);
+        });
+    }
+  } catch (err) {
+    self.logError('CoreZoneDisplay: refreshUIConfig error: ' + err.message);
+  }
 };
 
 /**
@@ -659,6 +843,15 @@ CoreZoneDisplay.prototype.updateConfigFromApi = function (payload) {
         return Boolean(f.rssUrl);
       });
     self.config.set('podcastFeedsJson', JSON.stringify(sanitizedFeeds));
+  }
+
+  // Force synchronous write to disk immediately
+  if (typeof self.config.save === 'function') {
+    try {
+      self.config.save();
+    } catch (saveErr) {
+      self.logError('CoreZoneDisplay: config.save() error: ' + saveErr.message);
+    }
   }
 
   return self.getCurrentSettings();
@@ -863,6 +1056,7 @@ CoreZoneDisplay.prototype.onStart = function () {
       try {
         var updated = self.updateConfigFromApi(req.body || {});
         self.notifySettingsChanged();
+        self.refreshUIConfig();
         res.json({
           status: 'ok',
           config: updated

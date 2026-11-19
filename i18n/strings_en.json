@@ -6,6 +6,9 @@
   "SECTION_DISPLAY_DESC": "What the screen shows when CoreZoneDisplay starts.",
   "DISPLAY_MODE": "Startup Screen",
   "DISPLAY_MODE_DOC": "Clock Only: the screen always shows the clock. Player Menu + Clock When Idle: shows the music player, and switches to the clock after a period of no activity.",
+  "DISPLAY_MODE_SCREENSAVER_ONLY": "Clock Only",
+  "DISPLAY_MODE_FULL_UI": "Player Menu + Clock When Idle",
+  "SETTINGS_SAVED": "Settings saved successfully",
 
   "SECTION_SCREENSAVER": "Idle Clock (Screensaver)",
   "SECTION_SCREENSAVER_DESC": "When to switch from the player menu to the clock. Used only in 'Player Menu + Clock When Idle' mode.",

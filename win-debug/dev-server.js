@@ -149,6 +149,10 @@ function loadDevConfig() {
       displayMode: displayMode,
       screensaverEnabled:
         parsed.screensaverEnabled !== undefined ? Boolean(parsed.screensaverEnabled) : true,
+      preventScreensaverWhilePlaying:
+        parsed.preventScreensaverWhilePlaying !== undefined
+          ? Boolean(parsed.preventScreensaverWhilePlaying)
+          : true,
       idleTimeoutSec: Number(parsed.idleTimeoutSec) > 0 ? Number(parsed.idleTimeoutSec) : 30,
       selectedClock: String(parsed.selectedClock || 'MainClockSelector.html').trim(),
       availableClocks: scanAvailableClocks(),
